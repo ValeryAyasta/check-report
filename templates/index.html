@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Generar Reporte Asistencia</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 60%;
+      margin: 40px auto;
+      padding: 1% 3%;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 25px;
+      font-size: 1.8rem;
+    }
+
+    form label {
+      display: block;
+      font-weight: 600;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select,
+    input[type="file"], button {
+      width: 100%;
+      padding: 1%;
+      border: 1px solid #ddd;
+      border-radius: 0.5rem;
+      box-sizing: border-box; /* 🔑 hace que el width incluya borde+padding */
+      display: block; /* fuerza que todos respeten el ancho */
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      font-weight: 500;
+      color: #444;
+    }
+
+    button {
+      font-weight: 600;
+      cursor: pointer;
+      color: white;
+      background: cornflowerblue;
+      transition: background 0.3s ease;
+    }
+
+    .file-details {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 0.5rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .container {
+        margin: 20px;
+        padding: 20px;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Reporte de Asistencia</h1>
+    <form method="post" enctype="multipart/form-data">
+      <label>Usuario:<br>
+        <input type="text" name="usuario" placeholder="Ingrese su usuario" required>
+      </label>
+<br>
+      <label>Password:<br>
+        <input type="password" name="password" placeholder="Ingrese su contraseña" required>
+      </label>
+<br>
+      <label>Curso: <br>
+      <select name="curso" required> {% for id, curso in cursos.items() %}
+        <option value="{{ id }}">{{ curso.nombre }}</option> {% endfor %}
+      </select>
+      </label>
+<br>
+      <div class="checkbox-label">
+        <input type="checkbox" id="use_padron" name="use_padron" onchange="togglePadronInput()">
+        <label for="use_padron">Usar Padrón</label>
+      </div>
+
+      <div id="padron_div" style="display:none;">
+<br>        <label>Archivo Padrón:</label>
+        <input type="file" name="padron">
+        <div class="file-details">Suba el padrón en formato Excel o CSV</div>
+      </div>
+<br>
+      <label>Drives de Tutores:</label>
+      <input type="file" name="tutores" multiple>
+      <div class="file-details">Puede seleccionar varios archivos a la vez</div>
+<br>
+      <button type="submit">Generar</button>
+    </form>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }}" style="
+  background-color: #ffe5e5;
+  color: #b00020;
+  border: 1px solid #b00020;
+  padding: 12px;
+  border-radius: 6px;
+  margin-top: 10px;
+  width: 80%;
+  justify-self: center;
+">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+  <script>
+    function togglePadronInput() {
+      const check = document.getElementById("use_padron");
+      const padronDiv = document.getElementById("padron_div");
+      padronDiv.style.display = check.checked ? "block" : "none";
+    }
+  </script>
+</body>
+</html>
