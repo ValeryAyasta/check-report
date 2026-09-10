@@ -27,16 +27,9 @@ def main_pipeline(usuario: str, password: str, use_padron: bool, padron_path: Pa
     out_unido = "reporte-asistencia-unido.xlsx"
     out_final = base_dir / "asistencia_final.xlsx"
 
-    # 1) Login
-    try:
-        session = MoodleSession(usuario, password).login()
-    except LoginError as e:
-        logger.error("No se pudo iniciar sesión: %s", e)
-        raise
-
     # 2) Generar reporte unido
     try:
-        downloader = ReportDownloader(session)
+        downloader = ReportDownloader(usuario, password)
         reporte_unido = ReporteUnido(downloader).generar_reporte(
             course=codigo_curso,
             grupos=grupos,

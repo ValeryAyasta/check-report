@@ -2,7 +2,7 @@ import pandas as pd
 import logging
 
 from services.auth import LoginError
-from services.downloader import DownloadError
+from services.downloader import DownloadError, ReportDownloader
 from services.utils import normalizar_dni
 
 # ---------- Config / Logging ----------
@@ -14,36 +14,47 @@ class ProcessingError(Exception):
 
 
 class ReporteUnido:
-    def __init__(self, downloader):
+    def __init__(self, downloader: ReportDownloader):
         self.downloader = downloader
 
     def generar_reporte(self, course: int, grupos: list[int], output_file) -> str:
 
       try:
-        dfs = [self.downloader.descargar_csv(course, g) for g in grupos]
-        df = pd.concat(dfs, ignore_index=True)
 
-        cols_to_drop = [4, 6, 8, 10, 12, 14, 16, 18, 20]
-        df = df.drop(df.columns[cols_to_drop], axis=1)
-
+        notas_dfs = [self.downloader.descargar_excel_notas(course, g) for g in grupos]
+        print("Notas dfs length:", len(notas_dfs))
+        df_notas = pd.concat(notas_dfs, ignore_index=True)
 
 
-        df = df.rename(columns={df.columns[0]: "Nombre",
-                                            df.columns[1]: "DNI",
-                                            df.columns[2]: "Equipo - Tutor"})
+        checks_dfs = [self.downloader.descargar_csv_checks(course, g) for g in grupos]
+        df_checks = pd.concat(checks_dfs, ignore_index=True)
 
-        df["DNI"] = normalizar_dni(df["DNI"])
+        cols_to_drop_checks = [0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+        df_checks = df_checks.drop(df_checks.columns[cols_to_drop_checks], axis=1)
 
-        df.to_excel(output_file, index=False)
-        print("Reporte unido guardado en", output_file)
+        cols_to_drop_notas = [3, 9]
+
+        df_notas = df_notas.drop(df_notas.columns[cols_to_drop_notas], axis=1)
+
+        df_checks.to_excel("checks.xlsx", index=False)
+
+        df_final = pd.concat(
+            [df_notas, df_checks],
+            axis=1
+        )
+
+        df_final = df_final.rename(columns={df_final.columns[2]: "DNI",
+                                            df_final.columns[4]: "Equipo - Tutor",
+                                            df_final.columns[6]: "EF (AV)",
+                                            df_final.columns[5]: "Asistencia AV",
+                                            df_final.columns[8]: "Situación"})
+
+        df_final["DNI"] = normalizar_dni(df_final["DNI"])
+
+        df_final.to_excel(output_file, index=False)
+        print(f"✅ Reporte unido generado correctamente: {output_file}")
+
         return output_file
-
-
-      except LoginError as e:
-
-          logger.error(f"Error de autenticación: {e}")
-
-          raise LoginError("Credenciales incorrectas o error en el login.")
 
       except PermissionError as e:
 

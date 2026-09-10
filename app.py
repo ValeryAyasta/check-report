@@ -17,7 +17,9 @@ CURSOS = {
     374: {"nombre": "DISCIPULADO 3 2025-II", "grupos": [37240, 37233]}, #valery
     440: {"nombre":"DISCIPULADO 1 2025-III", "grupos": [45094,45071]}, # (valery) 45094 (c11), 45071 (c21)
     441: {"nombre":"DISCIPULADO 2 2025-III", "grupos": []}, # (maritza)
-    442: {"nombre":"DISCIPULADO 3 2025-III", "grupos": [45112,45203]}, #(lucy) #45112 (c21), 45203 (c11)
+    442: {"nombre":"DISCIPULADO 3 2025-III", "grupos": [45112,45203]}, #(lucy) #45112 (c21), 45203 (c11),
+    516:{"nombre":"DISCIPULADO 2 2026-I", "grupos": [53829,53777]},
+    587:{"nombre":"DISCIPULADO 2 2026-II", "grupos": [62009,62020]},
 }
 
 
