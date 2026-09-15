@@ -2,142 +2,299 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Generar Reporte Asistencia</title>
+  <title>Generar Reporte de Asistencia</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       margin: 0;
       padding: 0;
+      background: #f4f6f8;
     }
 
     .container {
-      max-width: 60%;
+      max-width: 640px;
       margin: 40px auto;
-      padding: 1% 3%;
+      padding: 24px 32px 32px;
+      background: #fff;
       border-radius: 12px;
       box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     }
 
-    h1 {
-      text-align: center;
-      margin-bottom: 25px;
-      font-size: 1.8rem;
-    }
+    h1 { text-align: center; margin-bottom: 8px; font-size: 1.6rem; }
+    .subtitulo { text-align: center; color: #666; margin-bottom: 24px; font-size: 0.9rem; }
 
-    form label {
-      display: block;
-      font-weight: 600;
+    fieldset {
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      margin-bottom: 18px;
+      padding: 14px 16px 18px;
     }
+    legend { font-weight: 700; padding: 0 6px; color: #333; }
 
-    input[type="text"],
-    input[type="password"],
-    select,
-    input[type="file"], button {
+    form label { display: block; font-weight: 600; margin-top: 10px; margin-bottom: 4px; }
+    .ayuda { font-weight: 400; font-size: 12px; color: #777; margin: -2px 0 6px; }
+
+    input[type="text"], input[type="password"], input[type="number"],
+    select, input[type="file"] {
       width: 100%;
-      padding: 1%;
-      border: 1px solid #ddd;
-      border-radius: 0.5rem;
-      box-sizing: border-box; /* 🔑 hace que el width incluya borde+padding */
-      display: block; /* fuerza que todos respeten el ancho */
+      padding: 8px 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      box-sizing: border-box;
+      font-size: 14px;
     }
 
-    .checkbox-label {
+    .grupo-cols { display: flex; gap: 12px; }
+    .grupo-cols > div { flex: 1; }
+
+    .checkbox-row {
       display: flex;
-      align-items: center;
-      font-weight: 500;
-      color: #444;
+      align-items: flex-start;
+      gap: 8px;
+      margin: 8px 0;
     }
+    .checkbox-row input { margin-top: 3px; }
+    .checkbox-row label { margin: 0; font-weight: 500; color: #333; }
+    .checkbox-row .ayuda { margin: 0; }
 
-    button {
-      font-weight: 600;
+    button#btn-generar {
+      width: 100%;
+      margin-top: 8px;
+      padding: 12px;
+      font-weight: 700;
+      font-size: 15px;
       cursor: pointer;
       color: white;
-      background: cornflowerblue;
-      transition: background 0.3s ease;
+      background: #3b6fd6;
+      border: none;
+      border-radius: 8px;
+      transition: background 0.2s ease;
     }
+    button#btn-generar:hover { background: #2f5bb8; }
+    button#btn-generar:disabled { background: #9db3e0; cursor: not-allowed; }
 
-    .file-details {
-      font-size: 13px;
-      color: #666;
-      margin-bottom: 0.5rem;
+    .file-details { font-size: 12px; color: #666; margin-top: 4px; }
+
+    .alert {
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin: 10px 0;
+      font-size: 14px;
     }
+    .alert-error { background: #ffe5e5; color: #b00020; border: 1px solid #f5b3b3; }
+    .alert-warning { background: #fff6dd; color: #8a6500; border: 1px solid #f0d98c; }
+    .alert-success { background: #e6f7ea; color: #1c7a34; border: 1px solid #a9dcb5; }
 
-    /* Responsive */
+    /* Overlay de "procesando" */
+    #overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(255,255,255,0.92);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      text-align: center;
+      padding: 20px;
+    }
+    #overlay.visible { display: flex; }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 5px solid #dbe4f5;
+      border-top-color: #3b6fd6;
+      border-radius: 50%;
+      animation: girar 0.9s linear infinite;
+      margin-bottom: 18px;
+    }
+    @keyframes girar { to { transform: rotate(360deg); } }
+    #overlay p { color: #444; font-size: 15px; max-width: 380px; }
+    #overlay .aviso-tiempo { font-size: 12.5px; color: #888; margin-top: 6px; }
+
     @media (max-width: 600px) {
-      .container {
-        margin: 20px;
-        padding: 20px;
-      }
-
-      h1 {
-        font-size: 1.5rem;
-      }
+      .container { margin: 16px; padding: 18px; }
+      .grupo-cols { flex-direction: column; gap: 0; }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Reporte de Asistencia</h1>
-    <form method="post" enctype="multipart/form-data">
-      <label>Usuario:<br>
-        <input type="text" name="usuario" placeholder="Ingrese su usuario" required>
-      </label>
-<br>
-      <label>Password:<br>
-        <input type="password" name="password" placeholder="Ingrese su contraseña" required>
-      </label>
-<br>
-      <label>Curso: <br>
-      <select name="curso" required> {% for id, curso in cursos.items() %}
-        <option value="{{ id }}">{{ curso.nombre }}</option> {% endfor %}
-      </select>
-      </label>
-<br>
-      <div class="checkbox-label">
-        <input type="checkbox" id="use_padron" name="use_padron" onchange="togglePadronInput()">
-        <label for="use_padron">Usar Padrón</label>
-      </div>
+    <h1>Reporte de Asistencia — Discipulado</h1>
+    <p class="subtitulo">Compara notas y asistencia del Aula Virtual contra los registros de las tutoras en Drive.</p>
 
-      <div id="padron_div" style="display:none;">
-<br>        <label>Archivo Padrón:</label>
-        <input type="file" name="padron">
-        <div class="file-details">Suba el padrón en formato Excel o CSV</div>
-      </div>
-<br>
-      <label>Drives de Tutores:</label>
-      <input type="file" name="tutores" multiple>
-      <div class="file-details">Puede seleccionar varios archivos a la vez</div>
-<br>
-      <button type="submit">Generar</button>
+    <form method="post" action="/generar-reporte" enctype="multipart/form-data" id="form-reporte">
+
+      <fieldset>
+        <legend>Credenciales de Moodle</legend>
+        <label>Usuario (DNI)
+          <input type="text" name="usuario" placeholder="Tu usuario de Moodle" required>
+        </label>
+        <label>Contraseña
+          <input type="password" name="password" placeholder="Tu contraseña de Moodle" required>
+        </label>
+        <div class="ayuda">Tus credenciales se usan solo para esta descarga y no se guardan en el servidor.</div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Curso</legend>
+        <label>ID del curso en Moodle
+          <input type="text" inputmode="numeric" name="curso_id" placeholder="Ej: 440" required>
+        </label>
+        <div class="ayuda">Lo encuentras en la URL del curso en Moodle (…/course/view.php?id=440).</div>
+
+        <label>Nombre del curso <span style="font-weight:400;">(opcional, solo para el nombre del archivo)</span>
+          <input type="text" name="nombre_curso" placeholder="Ej: Discipulado I 2026-III">
+        </label>
+
+        <label>ID numérico de grupo en Moodle</label>
+        <div class="grupo-cols">
+          <div>
+            <label style="font-weight:400; font-size:12px; margin-top:0;">Grupo C11</label>
+            <input type="text" inputmode="numeric" name="grupo_c11" placeholder="Ej: 45094">
+          </div>
+          <div>
+            <label style="font-weight:400; font-size:12px; margin-top:0;">Grupo C21</label>
+            <input type="text" inputmode="numeric" name="grupo_c21" placeholder="Ej: 45071">
+          </div>
+        </div>
+        <div class="ayuda">Deja el campo vacío si no tienes ese grupo a cargo. Es el ID numérico del grupo (lo encuentras en la URL del grupo dentro del curso en Moodle) — no el texto "C11"/"C21", ese ID es distinto en cada curso.</div>
+
+        <label>Número de clases del curso
+          <select name="num_clases">
+            <option value="9" selected>9 clases (normal)</option>
+            <option value="8">8 clases</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Excepciones de este curso</legend>
+        <div class="ayuda" style="margin-bottom:8px;">Marca solo lo que NO aplique a este curso en particular. Si no marcas nada, se asume el caso normal (con examen, con trabajo final visible en el Aula Virtual, y con trabajo del libro).</div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="sin_examen_final" name="sin_examen_final">
+          <div>
+            <label for="sin_examen_final">Este curso NO tiene Examen Final</label>
+          </div>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="sin_trabajo_final" name="sin_trabajo_final">
+          <div>
+            <label for="sin_trabajo_final">Este curso NO tiene Trabajo Final</label>
+          </div>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="trabajo_final_no_visible_en_av" name="trabajo_final_no_visible_en_av">
+          <div>
+            <label for="trabajo_final_no_visible_en_av">El Trabajo Final NO se sube al Aula Virtual</label>
+            <div class="ayuda">Úsalo cuando la tutora sí registra la nota de TF en su Drive, pero ese curso no lo sube a Moodle.</div>
+          </div>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="sin_trabajo_libro" name="sin_trabajo_libro">
+          <div>
+            <label for="sin_trabajo_libro">Este curso NO tiene Trabajo del Libro / Devocionales</label>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Archivos</legend>
+
+        <label>Archivos de asistencia de las tutoras (Drive)</label>
+        <input type="file" name="tutores" multiple accept=".xlsx" required>
+        <div class="file-details">Puedes seleccionar varios archivos .xlsx a la vez (uno por tutora).</div>
+      </fieldset>
+
+      <button type="submit" id="btn-generar">Generar reporte</button>
     </form>
   </div>
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    {% for category, message in messages %}
-      <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }}" style="
-  background-color: #ffe5e5;
-  color: #b00020;
-  border: 1px solid #b00020;
-  padding: 12px;
-  border-radius: 6px;
-  margin-top: 10px;
-  width: 80%;
-  justify-self: center;
-">
-        {{ message }}
-      </div>
-    {% endfor %}
-  {% endif %}
-{% endwith %}
+  <div id="mensajes" class="container" style="margin-top:-8px; padding-top:0; box-shadow:none; display:none;"></div>
+
+  <div id="overlay">
+    <div class="spinner"></div>
+    <p id="overlay-texto">Descargando y comparando la información de Moodle con los archivos de las tutoras…</p>
+    <p class="aviso-tiempo">Esto puede tardar 1 o 2 minutos según el tamaño del curso. No cierres esta pestaña.</p>
+  </div>
 
   <script>
-    function togglePadronInput() {
-      const check = document.getElementById("use_padron");
-      const padronDiv = document.getElementById("padron_div");
-      padronDiv.style.display = check.checked ? "block" : "none";
+    // Se envía por fetch (en vez de un submit normal) porque el servidor
+    // siempre responde JSON (archivo en base64 + advertencias, o un
+    // error), y así el overlay de "procesando" se puede ocultar de forma
+    // confiable apenas llega la respuesta.
+    const form = document.getElementById("form-reporte");
+    const btn = document.getElementById("btn-generar");
+    const overlay = document.getElementById("overlay");
+    const mensajesDiv = document.getElementById("mensajes");
+
+    function mostrarMensajes(items) {
+      // items: [{texto, tipo}], tipo: 'error' | 'warning' | 'success'
+      mensajesDiv.innerHTML = "";
+      if (!items.length) {
+        mensajesDiv.style.display = "none";
+        return;
+      }
+      for (const { texto, tipo } of items) {
+        const div = document.createElement("div");
+        div.className = "alert alert-" + tipo;
+        div.textContent = texto;
+        mensajesDiv.appendChild(div);
+      }
+      mensajesDiv.style.display = "block";
+      mensajesDiv.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+
+    function base64ADescarga(base64, nombreArchivo) {
+      const binario = atob(base64);
+      const bytes = new Uint8Array(binario.length);
+      for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+      const blob = new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = nombreArchivo;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      btn.disabled = true;
+      btn.textContent = "Generando…";
+      overlay.classList.add("visible");
+      mostrarMensajes([]);
+
+      try {
+        const formData = new FormData(form);
+        const resp = await fetch(form.action, { method: "POST", body: formData });
+        const data = await resp.json();
+
+        if (data.ok) {
+          base64ADescarga(data.archivo_base64, data.nombre_archivo);
+          const items = [{ texto: `Reporte generado: ${data.nombre_archivo}`, tipo: "success" }];
+          for (const advertencia of (data.advertencias || [])) {
+            items.push({ texto: advertencia, tipo: "warning" });
+          }
+          mostrarMensajes(items);
+        } else {
+          mostrarMensajes([{ texto: data.error || "Ocurrió un error desconocido.", tipo: "error" }]);
+        }
+      } catch (err) {
+        mostrarMensajes([{ texto: "Error de conexión generando el reporte. Intenta nuevamente.", tipo: "error" }]);
+      } finally {
+        overlay.classList.remove("visible");
+        btn.disabled = false;
+        btn.textContent = "Generar reporte";
+      }
+    });
   </script>
 </body>
 </html>
