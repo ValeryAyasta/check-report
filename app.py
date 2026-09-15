@@ -1,97 +1,116 @@
+import base64
 import logging
-
-from flask import Flask, render_template, request, send_file, flash
+import os
+import shutil
+import tempfile
 from pathlib import Path
-from reporte_asistencia import main_pipeline
-import os, tempfile
-import traceback
 
-from services.auth import LoginError
-from services.downloader import DownloadError
-from services.reporte_unido import ProcessingError
+from flask import Flask, jsonify, render_template, request
 
-# courses.py
-CURSOS = {
-    372: {"nombre":"DISCIPULADO 1 2025-II", "grupos": [37172,37226]}, #37172, 37226 (maritza)
-    373: {"nombre": "DISCIPULADO 2 2025-II", "grupos": [37229,37190]}, #37229, 37190 (lucy)
-    374: {"nombre": "DISCIPULADO 3 2025-II", "grupos": [37240, 37233]}, #valery
-    440: {"nombre":"DISCIPULADO 1 2025-III", "grupos": [45094,45071]}, # (valery) 45094 (c11), 45071 (c21)
-    441: {"nombre":"DISCIPULADO 2 2025-III", "grupos": []}, # (maritza)
-    442: {"nombre":"DISCIPULADO 3 2025-III", "grupos": [45112,45203]}, #(lucy) #45112 (c21), 45203 (c11),
-    516:{"nombre":"DISCIPULADO 2 2026-I", "grupos": [53829,53777]},
-    587:{"nombre":"DISCIPULADO 2 2026-II", "grupos": [62009,62020]},
-}
+import config
+from domain.curso import ConfiguracionCurso, ConfiguracionInvalidaError
+from pipeline import ejecutar_pipeline, PipelineError
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+if not config.FLASK_SECRET_KEY:
+    raise RuntimeError(
+        "Falta la variable de entorno FLASK_SECRET_KEY. Genera una con:\n"
+        "  python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+        "y expórtala antes de iniciar la aplicación."
+    )
 
 app = Flask(__name__)
-app.secret_key = "e4c8a43c5b11d2f87f9f422d4dfb13e3"
+app.secret_key = config.FLASK_SECRET_KEY
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB de archivos subidos, como máximo
 
-@app.route("/", methods=["GET", "POST"])
+
+@app.route("/", methods=["GET"])
 def index():
-    if request.method == "POST":
-      try:
-        usuario = request.form["usuario"]
-        password = request.form["password"]
-        curso_id = int(request.form["curso"])
-        grupos = CURSOS[curso_id]["grupos"]
-
-        # Base del proyecto
-        BASE_DIR = Path(__file__).parent
-
-        # Carpeta segura dentro del proyecto
-        TEMP_BASE = BASE_DIR / "temp"
-        TEMP_BASE.mkdir(exist_ok=True)
-
-        # Crear subcarpeta temporal única dentro de temp/
-        temp_dir = tempfile.mkdtemp(prefix="drive-", dir=TEMP_BASE)
-
-        # 1) Chequeamos si el usuario quiere usar padrón
-        use_padron = "use_padron" in request.form
-        padron_path = None
-        if use_padron:
-            padron_file = request.files.get("padron")
-            if padron_file and padron_file.filename:
-                padron_path = Path(temp_dir) / padron_file.filename
-                padron_file.save(padron_path)
+    return render_template("index.html")
 
 
-        # Recibir los archivos de tutores
-        tutores_files = request.files.getlist("tutores")
+@app.route("/generar-reporte", methods=["POST"])
+def generar_reporte():
+    """
+    Siempre devuelve JSON: { ok, error } o { ok, archivo_base64, nombre_archivo, advertencias }.
+    El frontend (index.html) se encarga de descargar el archivo o mostrar el error/las advertencias.
+    """
+    temp_dir = None
+    try:
+        usuario = request.form.get("usuario", "").strip()
+        password = request.form.get("password", "")
+        if not usuario or not password:
+            return jsonify(ok=False, error="Ingresa tu usuario y contraseña de Moodle."), 400
 
-        # Guardar todos en un directorio temporal
-        tutores_dir = Path(temp_dir) / "drive-tutores"
+        curso = ConfiguracionCurso.desde_formulario(request.form)
+
+        config.TEMP_DIR.mkdir(exist_ok=True)
+        temp_dir = Path(tempfile.mkdtemp(prefix="checkreport-", dir=config.TEMP_DIR))
+
+        # ---- archivos de tutoras (obligatorio, al menos 1) ----
+        tutores_files = [f for f in request.files.getlist("tutores") if f and f.filename]
+        if not tutores_files:
+            return jsonify(ok=False, error="Debes subir al menos un archivo de asistencia de tutora."), 400
+
+        tutores_dir = temp_dir / "tutores"
         tutores_dir.mkdir(exist_ok=True)
-
+        archivos_ignorados = []
         for f in tutores_files:
-            if f and f.filename:  # <-- Verifica que tenga nombre
-                save_path = tutores_dir / f.filename
-                f.save(save_path)
-            else:
-                print("⚠️ Archivo sin nombre, omitido.")
+            if not f.filename.lower().endswith(".xlsx"):
+                archivos_ignorados.append(f.filename)
+                continue
+            f.save(tutores_dir / f.filename)
 
-        # Ejecutar pipeline
-        path_final = main_pipeline(usuario, password, use_padron, padron_path, curso_id, grupos, tutores_dir)
+        resultado = ejecutar_pipeline(
+            usuario=usuario,
+            password=password,
+            curso=curso,
+            tutores_dir=tutores_dir,
+            dir_trabajo=temp_dir,
+        )
 
-        return send_file(path_final, as_attachment=True)
+        advertencias = list(resultado.advertencias)
+        if archivos_ignorados:
+            advertencias.append(
+                "Estos archivos no son .xlsx y se ignoraron: " + ", ".join(archivos_ignorados)
+            )
+
+        # Se lee el archivo a memoria y se borra el directorio temporal
+        # (con datos de alumnos y, en algún momento, la sesión de Moodle)
+        # ANTES de devolver la respuesta.
+        nombre_descarga = resultado.ruta_excel_final.name
+        contenido_excel = resultado.ruta_excel_final.read_bytes()
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        temp_dir = None
+
+        return jsonify(
+            ok=True,
+            nombre_archivo=nombre_descarga,
+            archivo_base64=base64.b64encode(contenido_excel).decode("ascii"),
+            advertencias=advertencias,
+        )
+
+    except ConfiguracionInvalidaError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    except PipelineError as e:
+        return jsonify(ok=False, error=str(e)), 400
+    except Exception:
+        logger.exception("Error inesperado procesando el formulario")
+        return jsonify(
+            ok=False,
+            error=(
+                "Ocurrió un error inesperado generando el reporte. Si el problema persiste, "
+                "revisa los logs del servidor o contacta al encargado técnico."
+            ),
+        ), 500
+    finally:
+        if temp_dir and temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-
-      except LoginError as e:
-          flash(str(e), "error")
-
-      except PermissionError as e:
-          flash("Permisos insuficientes o sesión expirada en Moodle.", "error")
-
-      except DownloadError as e:
-          flash(f"Error al descargar CSV: {e}", "error")
-
-      except ProcessingError as e:
-          flash("Error al generar el reporte unido. Intenta nuevamente.", "error")
-
-      except Exception as e:
-          raise ProcessingError(f"generar_reporte_unido falló ({type(e).__name__}: {e})") from e
-
-    return render_template("index.html", cursos=CURSOS)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug)
