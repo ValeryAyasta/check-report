@@ -77,13 +77,18 @@ def _col(mapa: dict[str, int], nombre: str, obligatoria: bool = True) -> int | N
     return None
 
 
-def _agregar_columna(ws: Worksheet, titulo: str, mapa: dict[str, int]) -> int:
-    """Agrega una columna nueva al final de la hoja y la registra en el mapa."""
+def _agregar_columna(ws: Worksheet, titulo: str, mapa: dict[str, int], columnas_estilizadas: set[int] | None = None) -> int:
+    """Agrega una columna nueva al final de la hoja y la registra en el mapa.
+    Si se pasa `columnas_estilizadas`, se anota el índice ahí para que
+    _aplicar_formato_general() sepa que este encabezado ya tiene su
+    propio estilo y no debe tocarlo (ver esa función para el porqué)."""
     col = ws.max_column + 1
     cell = ws.cell(1, col, titulo)
     cell.font = Font(bold=True, color=config.COLOR_BLANCO)
     cell.fill = PatternFill("solid", fgColor=config.COLOR_MORADO_HEADER)
     mapa[titulo] = col
+    if columnas_estilizadas is not None:
+        columnas_estilizadas.add(col)
     return col
 
 
@@ -102,6 +107,7 @@ def _preparar_columnas(ws: Worksheet, curso: ConfiguracionCurso) -> dict:
     """Agrega todas las columnas calculadas al final del reporte y
     devuelve un dict con los índices de columna relevantes."""
     mapa = _mapa_encabezados(ws)
+    columnas_estilizadas: set[int] = set()
 
     idx = {
         "dni": _col(mapa, "DNI"),
@@ -117,33 +123,34 @@ def _preparar_columnas(ws: Worksheet, curso: ConfiguracionCurso) -> dict:
     # export de notas), se reutiliza la misma columna; si no, se crea.
     idx["grupo"] = _col(mapa, "Grupo", obligatoria=False)
     if not idx["grupo"]:
-        idx["grupo"] = _agregar_columna(ws, "Grupo", mapa)
+        idx["grupo"] = _agregar_columna(ws, "Grupo", mapa, columnas_estilizadas)
 
-    idx["clases_drive"] = _agregar_columna(ws, "Clases Drive", mapa)
-    idx["asistencia_drive"] = _agregar_columna(ws, "Asistencia Drive", mapa)
+    idx["clases_drive"] = _agregar_columna(ws, "Clases Drive", mapa, columnas_estilizadas)
+    idx["asistencia_drive"] = _agregar_columna(ws, "Asistencia Drive", mapa, columnas_estilizadas)
 
     if curso.tiene_examen_final:
-        idx["ef_drive"] = _agregar_columna(ws, "EF Drive", mapa)
+        idx["ef_drive"] = _agregar_columna(ws, "EF Drive", mapa, columnas_estilizadas)
     else:
         idx["ef_drive"] = None
 
     if curso.tiene_trabajo_final:
-        idx["tf_drive"] = _agregar_columna(ws, "TF Drive", mapa)
+        idx["tf_drive"] = _agregar_columna(ws, "TF Drive", mapa, columnas_estilizadas)
     else:
         idx["tf_drive"] = None
 
     # Devocionales / % Devocionales se calculan siempre, para todo curso.
-    idx["devo_total"] = _agregar_columna(ws, "Devocionales Entregados", mapa)
-    idx["devo_pct"] = _agregar_columna(ws, "% Devocionales", mapa)
+    idx["devo_total"] = _agregar_columna(ws, "Devocionales Entregados", mapa, columnas_estilizadas)
+    idx["devo_pct"] = _agregar_columna(ws, "% Devocionales", mapa, columnas_estilizadas)
 
-    idx["estado_final"] = _agregar_columna(ws, "Estado Final", mapa)
+    idx["estado_final"] = _agregar_columna(ws, "Estado Final", mapa, columnas_estilizadas)
 
     # Columnas S1..S{num_clases}: asistencia por clase copiada del Drive
     idx["clases_drive_inicio"] = ws.max_column + 1
     for i in range(1, curso.num_clases + 1):
-        _agregar_columna(ws, f"S{i}", mapa)
+        _agregar_columna(ws, f"S{i}", mapa, columnas_estilizadas)
 
     idx["mapa"] = mapa
+    idx["columnas_estilizadas"] = columnas_estilizadas
     return idx
 
 
@@ -182,7 +189,7 @@ def _procesar_archivo_tutor(
     try:
         wb_tutor = openpyxl.load_workbook(archivo, data_only=True, read_only=True)
     except Exception as e:
-        raise ReporteFinalError(f"No se pudo abrir el archivo del tutor '{archivo.name}': {e}") from e
+        raise ReporteFinalError(f"No se pudo abrir el archivo de la tutora '{archivo.name}': {e}") from e
 
     if config.NOMBRE_HOJA_ASISTENCIA_TUTOR not in wb_tutor.sheetnames:
         resultado.archivos_tutor_sin_hoja_asistencia.append(archivo.name)
@@ -322,12 +329,13 @@ def _procesar_archivo_tutor(
 
 def _marcar_inconsistencias_clase_por_clase(ws_main: Worksheet, idx: dict, curso: ConfiguracionCurso) -> None:
     mapa = idx["mapa"]
-    col_falta_check = _agregar_columna(ws_main, "Falta check", mapa)
-    col_falta_apreciacion = _agregar_columna(ws_main, "Falta apreciación", mapa)
+    columnas_estilizadas = idx["columnas_estilizadas"]
+    col_falta_check = _agregar_columna(ws_main, "Falta check", mapa, columnas_estilizadas)
+    col_falta_apreciacion = _agregar_columna(ws_main, "Falta apreciación", mapa, columnas_estilizadas)
     ws_main.cell(1, col_falta_check).fill = PatternFill("solid", fgColor=config.COLOR_NEGRO)
-    ws_main.cell(1, col_falta_check).font = Font(color=config.COLOR_AMARILLO)
+    ws_main.cell(1, col_falta_check).font = Font(bold=True, color=config.COLOR_AMARILLO)
     ws_main.cell(1, col_falta_apreciacion).fill = PatternFill("solid", fgColor=config.COLOR_ROJO)
-    ws_main.cell(1, col_falta_apreciacion).font = Font(color=config.COLOR_BLANCO)
+    ws_main.cell(1, col_falta_apreciacion).font = Font(bold=True, color=config.COLOR_BLANCO)
 
     columnas_clase = []
     for j in range(1, curso.num_clases + 1):
@@ -364,14 +372,22 @@ def _marcar_inconsistencias_clase_por_clase(ws_main: Worksheet, idx: dict, curso
         ws_main.cell(r, col_falta_apreciacion, _texto(faltan_apreciacion))
 
 
-def _aplicar_formato_general(ws_main: Worksheet) -> None:
+def _aplicar_formato_general(ws_main: Worksheet, columnas_estilizadas: set[int]) -> None:
+    """Aplica el estilo azul/blanco por defecto SOLO a los encabezados que
+    vinieron tal cual de Moodle (Nombre, DNI, Asistencia AV, etc.) y que
+    nunca pasaron por _agregar_columna(). Las columnas que sí pasaron por
+    ahí (incluidas las que después se recolorearon a mano, como "Falta
+    check" en negro/amarillo) están en `columnas_estilizadas` y se dejan
+    tal cual — no se detectan por su color actual, porque un color como
+    negro puro es indistinguible de "sin color" para openpyxl y terminaba
+    pisándose con el azul por defecto."""
     for col in range(1, ws_main.max_column + 1):
         cell = ws_main.cell(1, col)
-        if not cell.font or not cell.font.bold:
-            cell.font = Font(bold=True, color=config.COLOR_BLANCO)
         cell.alignment = Alignment(horizontal="center", vertical="center")
-        if not cell.fill or cell.fill.fgColor.rgb in (None, "00000000"):
-            cell.fill = PatternFill("solid", fgColor=config.COLOR_AZUL_HEADER)
+        if col in columnas_estilizadas:
+            continue
+        cell.font = Font(bold=True, color=config.COLOR_BLANCO)
+        cell.fill = PatternFill("solid", fgColor=config.COLOR_AZUL_HEADER)
 
     for fila in ws_main.iter_rows(min_row=1, max_row=ws_main.max_row, min_col=1, max_col=ws_main.max_column):
         for cell in fila:
@@ -403,20 +419,20 @@ def generar_reporte_final(
 
     archivos_tutores = sorted(Path(tutores_dir).glob("*.xlsx"))
     if not archivos_tutores:
-        raise ReporteFinalError(f"No se encontró ningún archivo .xlsx de tutor en {tutores_dir}.")
+        raise ReporteFinalError(f"No se encontró ningún archivo .xlsx de tutora en {tutores_dir}.")
 
     for archivo in archivos_tutores:
         _procesar_archivo_tutor(archivo, ws_main, dni_index, idx, curso, resultado)
 
     if resultado.dnis_no_encontrados_en_reporte:
         logger.warning(
-            "%d DNI(s) de archivos de tutor no se encontraron en el reporte: %s",
+            "%d DNI(s) de archivos de tutora no se encontraron en el reporte: %s",
             len(resultado.dnis_no_encontrados_en_reporte),
             sorted(set(resultado.dnis_no_encontrados_en_reporte)),
         )
 
     _marcar_inconsistencias_clase_por_clase(ws_main, idx, curso)
-    _aplicar_formato_general(ws_main)
+    _aplicar_formato_general(ws_main, idx["columnas_estilizadas"])
     autoajustar_columnas(ws_main)
 
     wb_main.save(out_path)
