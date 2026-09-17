@@ -162,41 +162,34 @@
         <label>Número de clases del curso
           <select name="num_clases">
             <option value="9" selected>9 clases (normal)</option>
-            <option value="8">8 clases</option>
+            <option value="8" >8 clases</option>
           </select>
         </label>
       </fieldset>
 
       <fieldset>
         <legend>Excepciones de este curso</legend>
-        <div class="ayuda" style="margin-bottom:8px;">Marca solo lo que NO aplique a este curso en particular. Si no marcas nada, se asume el caso normal (con examen, con trabajo final visible en el Aula Virtual, y con trabajo del libro).</div>
+        <div class="ayuda" style="margin-bottom:8px;">Marca solo lo que NO aplique a este curso en particular. Si no marcas nada, se asume el caso normal (con examen y con trabajo final visible en el Aula Virtual). Los devocionales se calculan siempre, para todo curso.</div>
 
         <div class="checkbox-row">
-          <input type="checkbox" id="sin_examen_final" name="sin_examen_final">
+          <input type="checkbox" id="sin_examen_final" name="sin_examen_final" >
           <div>
             <label for="sin_examen_final">Este curso NO tiene Examen Final</label>
           </div>
         </div>
 
         <div class="checkbox-row">
-          <input type="checkbox" id="sin_trabajo_final" name="sin_trabajo_final">
+          <input type="checkbox" id="sin_trabajo_final" name="sin_trabajo_final" >
           <div>
             <label for="sin_trabajo_final">Este curso NO tiene Trabajo Final</label>
           </div>
         </div>
 
         <div class="checkbox-row">
-          <input type="checkbox" id="trabajo_final_no_visible_en_av" name="trabajo_final_no_visible_en_av">
+          <input type="checkbox" id="trabajo_final_no_visible_en_av" name="trabajo_final_no_visible_en_av" >
           <div>
             <label for="trabajo_final_no_visible_en_av">El Trabajo Final NO se sube al Aula Virtual</label>
             <div class="ayuda">Úsalo cuando la tutora sí registra la nota de TF en su Drive, pero ese curso no lo sube a Moodle.</div>
-          </div>
-        </div>
-
-        <div class="checkbox-row">
-          <input type="checkbox" id="sin_trabajo_libro" name="sin_trabajo_libro">
-          <div>
-            <label for="sin_trabajo_libro">Este curso NO tiene Trabajo del Libro / Devocionales</label>
           </div>
         </div>
       </fieldset>

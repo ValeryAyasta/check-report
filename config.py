@@ -116,14 +116,20 @@ TABLA_NOTA_ASISTENCIA_9_CLASES = {
 }
 NOTA_MAXIMA_ASISTENCIA = 20
 
-# Fracción mínima de clases asistidas para aprobar por asistencia
-# (6 de 9 en el curso normal ≈ 66.6%). Se aplica proporcionalmente
-# al número de clases real del curso.
-FRACCION_MINIMA_ASISTENCIA_APROBAR = 6 / 9
+# Mínimo de clases asistidas para aprobar por asistencia. Es un número
+# FIJO (no proporcional al número de clases del curso): un curso de 8
+# clases exige el mismo mínimo de 6 que uno de 9.
+NUM_CLASES_MINIMAS_PARA_APROBAR = 6
 
 # Umbral de % de clases asistidas para considerar "asistencia completa"
 # a efectos de color (no de nota), aplicado sobre num_clases del curso.
 UMBRAL_ASISTENCIA_PARCIAL = 0.6  # 60% o más = verde claro
+
+# Además del mínimo de asistencia (y de haber entregado TF/resuelto EF
+# cuando el curso los tiene), el promedio de los indicadores que
+# apliquen (Asistencia, Examen si aplica, Trabajo Final si aplica) debe
+# ser mayor o igual a este valor para aprobar.
+PROMEDIO_MINIMO_PARA_APROBAR = 10.5
 
 # ============================================================
 # Layout del archivo de asistencia/devocionales de cada TUTORA (Drive)
