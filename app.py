@@ -56,7 +56,7 @@ def generar_reporte():
         # ---- archivos de tutoras (obligatorio, al menos 1) ----
         tutores_files = [f for f in request.files.getlist("tutores") if f and f.filename]
         if not tutores_files:
-            return jsonify(ok=False, error="Debes subir al menos un archivo de asistencia de tutora."), 400
+            return jsonify(ok=False, error="Debes subir al menos un archivo de asistencia de tutor."), 400
 
         tutores_dir = temp_dir / "tutores"
         tutores_dir.mkdir(exist_ok=True)

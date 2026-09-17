@@ -24,6 +24,7 @@ import unicodedata
 import pandas as pd
 
 import config
+from services.utils import normalizar_dni
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ def aplicar_layout_notas(df_notas: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         )
 
     df = df[list(columnas_finales.keys())].rename(columns=columnas_finales)
+    df["DNI"] = normalizar_dni(df["DNI"])
     logger.info(
         "Layout de notas aplicado. Columnas finales: %s | Indicadores detectados: %s",
         list(df.columns), indicadores,
@@ -130,6 +132,7 @@ def leer_checks(contenido_csv: bytes) -> pd.DataFrame:
 
     resultado = df[[col_dni] + columnas_clase].copy()
     resultado = resultado.rename(columns={col_dni: "DNI"})
+    resultado["DNI"] = normalizar_dni(resultado["DNI"])
     logger.info(
         "CSV de checks leído: %d clases detectadas (%s)",
         len(columnas_clase), columnas_clase,
