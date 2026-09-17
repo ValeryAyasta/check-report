@@ -80,7 +80,7 @@ def ejecutar_pipeline(
     ruta_reporte = dir_trabajo / "reporte_unido.xlsx"
     df_reporte.to_excel(ruta_reporte, index=False)
 
-    avisar("Pegando asistencia y devocionales de cada tutora...")
+    avisar("Pegando asistencia y devocionales de cada tutor...")
     nombre_archivo = "Reporte_" + "".join(
         c if c.isalnum() else "_" for c in curso.nombre
     ) + ".xlsx"
@@ -94,7 +94,7 @@ def ejecutar_pipeline(
     if calculo.dnis_no_encontrados_en_reporte:
         dnis_unicos = sorted(set(calculo.dnis_no_encontrados_en_reporte))
         advertencias.append(
-            f"{len(dnis_unicos)} DNI(s) de los archivos de tutora no se encontraron en el "
+            f"{len(dnis_unicos)} DNI(s) de los archivos de tutor no se encontraron en el "
             f"reporte principal (puede que ese alumno no esté en el grupo/curso seleccionado): "
             + ", ".join(dnis_unicos[:15]) + ("..." if len(dnis_unicos) > 15 else "")
         )

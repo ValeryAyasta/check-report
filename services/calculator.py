@@ -182,7 +182,7 @@ def _procesar_archivo_tutor(
     try:
         wb_tutor = openpyxl.load_workbook(archivo, data_only=True, read_only=True)
     except Exception as e:
-        raise ReporteFinalError(f"No se pudo abrir el archivo de la tutora '{archivo.name}': {e}") from e
+        raise ReporteFinalError(f"No se pudo abrir el archivo del tutor '{archivo.name}': {e}") from e
 
     if config.NOMBRE_HOJA_ASISTENCIA_TUTOR not in wb_tutor.sheetnames:
         resultado.archivos_tutor_sin_hoja_asistencia.append(archivo.name)
@@ -403,14 +403,14 @@ def generar_reporte_final(
 
     archivos_tutores = sorted(Path(tutores_dir).glob("*.xlsx"))
     if not archivos_tutores:
-        raise ReporteFinalError(f"No se encontró ningún archivo .xlsx de tutora en {tutores_dir}.")
+        raise ReporteFinalError(f"No se encontró ningún archivo .xlsx de tutor en {tutores_dir}.")
 
     for archivo in archivos_tutores:
         _procesar_archivo_tutor(archivo, ws_main, dni_index, idx, curso, resultado)
 
     if resultado.dnis_no_encontrados_en_reporte:
         logger.warning(
-            "%d DNI(s) de archivos de tutora no se encontraron en el reporte: %s",
+            "%d DNI(s) de archivos de tutor no se encontraron en el reporte: %s",
             len(resultado.dnis_no_encontrados_en_reporte),
             sorted(set(resultado.dnis_no_encontrados_en_reporte)),
         )
