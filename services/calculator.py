@@ -30,7 +30,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 import config
 from domain.curso import ConfiguracionCurso
-from services.utils import autoajustar_columnas, set_fill_por_valor, contar_celdas_con_valor
+from services.utils import autoajustar_columnas, set_fill_por_valor, contar_celdas_con_valor, normalizar_dni_valor
 
 logger = logging.getLogger(__name__)
 
@@ -111,24 +111,30 @@ def _preparar_columnas(ws: Worksheet, curso: ConfiguracionCurso) -> dict:
         "tf_av": _col(mapa, "TF (AV)", obligatoria=False),
     }
 
+    # "Grupo" no se usa para mostrar el grupo de Moodle: se llena con el
+    # nombre del archivo de la tutora que trajo cada alumno, para poder
+    # rastrear de qué Drive salió cada fila. Si ya existía (por venir del
+    # export de notas), se reutiliza la misma columna; si no, se crea.
+    idx["grupo"] = _col(mapa, "Grupo", obligatoria=False)
+    if not idx["grupo"]:
+        idx["grupo"] = _agregar_columna(ws, "Grupo", mapa)
+
     idx["clases_drive"] = _agregar_columna(ws, "Clases Drive", mapa)
     idx["asistencia_drive"] = _agregar_columna(ws, "Asistencia Drive", mapa)
 
-    if curso.tiene_examen_final and idx["ef_av"]:
+    if curso.tiene_examen_final:
         idx["ef_drive"] = _agregar_columna(ws, "EF Drive", mapa)
     else:
         idx["ef_drive"] = None
 
-    if curso.tiene_trabajo_final and idx["tf_av"]:
+    if curso.tiene_trabajo_final:
         idx["tf_drive"] = _agregar_columna(ws, "TF Drive", mapa)
     else:
         idx["tf_drive"] = None
 
-    if curso.tiene_trabajo_libro:
-        idx["devo_total"] = _agregar_columna(ws, "Devocionales Entregados", mapa)
-        idx["devo_pct"] = _agregar_columna(ws, "% Devocionales", mapa)
-    else:
-        idx["devo_total"] = idx["devo_pct"] = None
+    # Devocionales / % Devocionales se calculan siempre, para todo curso.
+    idx["devo_total"] = _agregar_columna(ws, "Devocionales Entregados", mapa)
+    idx["devo_pct"] = _agregar_columna(ws, "% Devocionales", mapa)
 
     idx["estado_final"] = _agregar_columna(ws, "Estado Final", mapa)
 
@@ -153,9 +159,266 @@ def calcular_nota_asistencia(clases_asistidas: int, curso: ConfiguracionCurso) -
     return max(0, min(config.NOTA_MAXIMA_ASISTENCIA, nota))
 
 
-def _aprobo_por_asistencia(clases_asistidas: int, curso: ConfiguracionCurso) -> bool:
-    minimo = round(curso.num_clases * config.FRACCION_MINIMA_ASISTENCIA_APROBAR)
-    return clases_asistidas >= minimo
+def _aprobo_por_asistencia(clases_asistidas: int) -> bool:
+    return clases_asistidas >= config.NUM_CLASES_MINIMAS_PARA_APROBAR
 
 
-#
+def _fue_entregado(valor_crudo) -> bool:
+    """True si la celda representa una entrega/nota real (no vacía, no
+    un placeholder tipo '-', y distinta de cero)."""
+    if valor_crudo in (None, "", "-"):
+        return False
+    return _a_entero(valor_crudo) != 0
+
+
+# ============================================================
+# Paso 3: procesar los archivos de cada tutora
+# ============================================================
+
+def _procesar_archivo_tutor(
+    archivo: Path, ws_main: Worksheet, dni_index: dict[str, int],
+    idx: dict, curso: ConfiguracionCurso, resultado: ResultadoCalculo,
+) -> None:
+    try:
+        wb_tutor = openpyxl.load_workbook(archivo, data_only=True, read_only=True)
+    except Exception as e:
+        raise ReporteFinalError(f"No se pudo abrir el archivo de la tutora '{archivo.name}': {e}") from e
+
+    if config.NOMBRE_HOJA_ASISTENCIA_TUTOR not in wb_tutor.sheetnames:
+        resultado.archivos_tutor_sin_hoja_asistencia.append(archivo.name)
+        logger.warning("Archivo %s sin hoja %s", archivo, config.NOMBRE_HOJA_ASISTENCIA_TUTOR)
+        return
+
+    ws_asistencia = wb_tutor[config.NOMBRE_HOJA_ASISTENCIA_TUTOR]
+    ws_devo = wb_tutor[config.NOMBRE_HOJA_DEVOCIONALES_TUTOR] if config.NOMBRE_HOJA_DEVOCIONALES_TUTOR in wb_tutor.sheetnames else None
+
+    # Nombre de archivo tal cual, solo reemplazando guiones bajos por
+    # espacios — así la columna "Grupo" queda 100% trazable al archivo
+    # real, sin adivinar qué parte del nombre es "la tutora".
+    tutor_nombre = archivo.stem.replace("_", " ")
+    resultado.tutores_procesados.append(tutor_nombre)
+    logger.info("Procesando tutora: %s (%s)", tutor_nombre, archivo.name)
+
+    col_dni_t = config.TUTOR_COL_DNI - 1              # a índice 0
+    col_asist_ini_t = config.TUTOR_COL_ASISTENCIA_INICIO - 1
+    col_tf_t = config.TUTOR_COL_TF_DRIVE - 1
+    col_ef_t = config.TUTOR_COL_EF_DRIVE - 1
+    col_devo_ini_t = config.TUTOR_DEVO_COL_INICIO - 1
+
+    for row_idx, row in enumerate(
+        ws_asistencia.iter_rows(min_row=config.TUTOR_FILA_INICIO_DATOS),
+        start=config.TUTOR_FILA_INICIO_DATOS,
+    ):
+        dni_celda = row[col_dni_t].value if len(row) > col_dni_t else None
+        if not dni_celda:
+            break  # fin de la lista de alumnos de esta tutora
+
+        dni_tutor = normalizar_dni_valor(dni_celda)
+        if dni_tutor not in dni_index:
+            resultado.dnis_no_encontrados_en_reporte.append(dni_tutor)
+            continue
+
+        r = dni_index[dni_tutor]
+
+        # El DNI/carnet que trae Moodle puede tener ceros a la izquierda
+        # perdidos (Moodle lo exporta como número). El de la tutora sí
+        # está escrito como texto, con el formato correcto — se usa ese
+        # para lo que se muestra en el reporte final.
+        dni_texto_tutor = str(dni_celda).strip()
+        if dni_texto_tutor:
+            ws_main.cell(r, idx["dni"], dni_texto_tutor)
+
+        # "Grupo" muestra de qué archivo de tutora salió este alumno,
+        # para poder rastrear a qué tutora pertenece cada fila.
+        ws_main.cell(r, idx["grupo"], tutor_nombre)
+
+        asistencias = row[col_asist_ini_t: col_asist_ini_t + curso.num_clases]
+        total_asist = contar_celdas_con_valor(asistencias)
+        nota_asist = calcular_nota_asistencia(total_asist, curso)
+
+        # -------- copiar asistencia por clase (columnas S1..Sn) --------
+        for j, celda in enumerate(asistencias):
+            target = ws_main.cell(r, idx["clases_drive_inicio"] + j, celda.value)
+            set_fill_por_valor(celda.value, target)
+
+        ws_main.cell(r, idx["clases_drive"], total_asist)
+        ws_main.cell(r, idx["asistencia_drive"], nota_asist)
+
+        if total_asist == curso.num_clases:
+            ws_main.cell(r, idx["clases_drive"]).fill = PatternFill("solid", fgColor=config.COLOR_ASISTENCIA_COMPLETA)
+        elif total_asist / curso.num_clases >= config.UMBRAL_ASISTENCIA_PARCIAL:
+            ws_main.cell(r, idx["clases_drive"]).fill = PatternFill("solid", fgColor=config.COLOR_ASISTENCIA_PARCIAL)
+
+        # -------- comparar asistencia Drive vs AV --------
+        val_av = _a_entero(ws_main.cell(r, idx["asistencia_av"]).value)
+        if val_av != nota_asist:
+            ws_main.cell(r, idx["asistencia_av"]).fill = PatternFill("solid", fgColor=config.COLOR_CELDA_INCONSISTENCIA)
+
+        # -------- Examen Final --------
+        # "indicadores" junta las notas (0-20) que sí aplican a este curso,
+        # para el promedio final. Los "gates" (ef_resuelto / tf_entregado)
+        # son condiciones aparte: aunque el promedio dé bien, si el curso
+        # tiene examen y no lo resolvió (o tiene TF y no lo entregó), no
+        # aprueba igual.
+        indicadores = [nota_asist]
+        ef_resuelto = True
+        if curso.tiene_examen_final and idx["ef_drive"]:
+            ef_drive_raw = row[col_ef_t].value if len(row) > col_ef_t else None
+            ef_drive_val = _a_entero(ef_drive_raw)
+            ws_main.cell(r, idx["ef_drive"], ef_drive_val)
+            if idx["ef_av"]:
+                val_ef_av = _a_entero(ws_main.cell(r, idx["ef_av"]).value)
+                if val_ef_av != ef_drive_val:
+                    ws_main.cell(r, idx["ef_drive"]).fill = PatternFill("solid", fgColor=config.COLOR_CELDA_INCONSISTENCIA)
+            ef_resuelto = _fue_entregado(ef_drive_raw)
+            indicadores.append(ef_drive_val)
+
+        # -------- Trabajo Final --------
+        tf_entregado = True
+        if curso.tiene_trabajo_final and idx["tf_drive"]:
+            tf_drive_raw = row[col_tf_t].value if len(row) > col_tf_t else None
+            tf_drive_val = _a_entero(tf_drive_raw)
+            ws_main.cell(r, idx["tf_drive"], tf_drive_val)
+            if idx["tf_av"]:
+                val_tf_av = _a_entero(ws_main.cell(r, idx["tf_av"]).value)
+                if val_tf_av != tf_drive_val:
+                    ws_main.cell(r, idx["tf_drive"]).fill = PatternFill("solid", fgColor=config.COLOR_CELDA_INCONSISTENCIA)
+            tf_entregado = _fue_entregado(tf_drive_raw)
+            indicadores.append(tf_drive_val)
+
+        # -------- Devocionales (siempre, para todo curso) --------
+        if ws_devo is not None:
+            devo_row_idx = row_idx + config.TUTOR_DEVO_FILA_OFFSET
+            devo_row = ws_devo[devo_row_idx]
+            devo_celdas = devo_row[col_devo_ini_t: col_devo_ini_t + config.TUTOR_DEVO_TOTAL_DIAS]
+            total_devo = sum(1 for c in devo_celdas if c.value == 1)
+            pct_devo = round((total_devo / config.TUTOR_DEVO_TOTAL_DIAS) * 100, 2) if config.TUTOR_DEVO_TOTAL_DIAS else 0
+            ws_main.cell(r, idx["devo_total"], total_devo)
+            ws_main.cell(r, idx["devo_pct"], pct_devo)
+
+        # -------- estado final: APROBADO / DESAPROBADO --------
+        # 1) mínimo de asistencia, 2) resolvió el examen (si aplica),
+        # 3) entregó el trabajo final (si aplica), 4) promedio >= 10.5.
+        promedio = sum(indicadores) / len(indicadores)
+        aprobo = (
+            _aprobo_por_asistencia(total_asist)
+            and ef_resuelto
+            and tf_entregado
+            and promedio >= config.PROMEDIO_MINIMO_PARA_APROBAR
+        )
+        celda_estado = ws_main.cell(r, idx["estado_final"], "APROBADO" if aprobo else "DESAPROBADO")
+        if aprobo:
+            celda_estado.fill = PatternFill("solid", fgColor=config.COLOR_APROBADO_FONDO)
+            celda_estado.font = Font(color=config.COLOR_APROBADO_TEXTO, bold=True)
+        else:
+            celda_estado.fill = PatternFill("solid", fgColor=config.COLOR_DESAPROBADO_FONDO)
+            celda_estado.font = Font(color=config.COLOR_DESAPROBADO_TEXTO, bold=True)
+        celda_estado.alignment = Alignment(horizontal="center")
+
+
+# ============================================================
+# Paso 4: comparar checks (Clase N) de Moodle vs asistencia del Drive
+# ============================================================
+
+def _marcar_inconsistencias_clase_por_clase(ws_main: Worksheet, idx: dict, curso: ConfiguracionCurso) -> None:
+    mapa = idx["mapa"]
+    col_falta_check = _agregar_columna(ws_main, "Falta check", mapa)
+    col_falta_apreciacion = _agregar_columna(ws_main, "Falta apreciación", mapa)
+    ws_main.cell(1, col_falta_check).fill = PatternFill("solid", fgColor=config.COLOR_NEGRO)
+    ws_main.cell(1, col_falta_check).font = Font(color=config.COLOR_AMARILLO)
+    ws_main.cell(1, col_falta_apreciacion).fill = PatternFill("solid", fgColor=config.COLOR_ROJO)
+    ws_main.cell(1, col_falta_apreciacion).font = Font(color=config.COLOR_BLANCO)
+
+    columnas_clase = []
+    for j in range(1, curso.num_clases + 1):
+        col_clase = mapa.get(f"Clase {j}")
+        col_s = mapa.get(f"S{j}")
+        if col_clase and col_s:
+            columnas_clase.append((j, col_clase, col_s))
+        else:
+            logger.warning("No se encontró columna 'Clase %d' o 'S%d' para el cruce de checks.", j, j)
+
+    for r in range(2, ws_main.max_row + 1):
+        faltan_check, faltan_apreciacion = [], []
+        for j, col_clase, col_s in columnas_clase:
+            estado_av = ws_main.cell(r, col_clase).value
+            valor_drive = ws_main.cell(r, col_s).value
+            celda_clase = ws_main.cell(r, col_clase)
+
+            if estado_av == "No finalizado":
+                celda_clase.fill = PatternFill("solid", fgColor=config.COLOR_NEGRO)
+                celda_clase.font = Font(color=config.COLOR_AMARILLO if valor_drive else config.COLOR_BLANCO)
+                if valor_drive:
+                    faltan_check.append(str(j))
+            elif estado_av == "Finalizado" and not valor_drive:
+                celda_clase.fill = PatternFill("solid", fgColor=config.COLOR_ROJO)
+                celda_clase.font = Font(color=config.COLOR_BLANCO)
+                faltan_apreciacion.append(str(j))
+
+        def _texto(lista):
+            if not lista:
+                return ""
+            return ("Clases " if len(lista) > 1 else "Clase ") + ", ".join(lista)
+
+        ws_main.cell(r, col_falta_check, _texto(faltan_check))
+        ws_main.cell(r, col_falta_apreciacion, _texto(faltan_apreciacion))
+
+
+def _aplicar_formato_general(ws_main: Worksheet) -> None:
+    for col in range(1, ws_main.max_column + 1):
+        cell = ws_main.cell(1, col)
+        if not cell.font or not cell.font.bold:
+            cell.font = Font(bold=True, color=config.COLOR_BLANCO)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        if not cell.fill or cell.fill.fgColor.rgb in (None, "00000000"):
+            cell.fill = PatternFill("solid", fgColor=config.COLOR_AZUL_HEADER)
+
+    for fila in ws_main.iter_rows(min_row=1, max_row=ws_main.max_row, min_col=1, max_col=ws_main.max_column):
+        for cell in fila:
+            cell.border = BORDE_FINO
+
+
+# ============================================================
+# Punto de entrada
+# ============================================================
+
+def generar_reporte_final(
+    reporte_unido_path: Path, tutores_dir: Path, out_path: Path, curso: ConfiguracionCurso,
+) -> tuple[Path, ResultadoCalculo]:
+    try:
+        wb_main = openpyxl.load_workbook(reporte_unido_path)
+        ws_main = wb_main.active
+    except Exception as e:
+        raise ReporteFinalError(f"No se pudo abrir el reporte unido: {e}") from e
+
+    resultado = ResultadoCalculo()
+    idx = _preparar_columnas(ws_main, curso)
+
+    dni_index: dict[str, int] = {}
+    for r in range(2, ws_main.max_row + 1):
+        val = ws_main.cell(r, idx["dni"]).value
+        if val:
+            dni_index[normalizar_dni_valor(val)] = r
+    logger.info("Índice de DNI cargado: %d registros", len(dni_index))
+
+    archivos_tutores = sorted(Path(tutores_dir).glob("*.xlsx"))
+    if not archivos_tutores:
+        raise ReporteFinalError(f"No se encontró ningún archivo .xlsx de tutora en {tutores_dir}.")
+
+    for archivo in archivos_tutores:
+        _procesar_archivo_tutor(archivo, ws_main, dni_index, idx, curso, resultado)
+
+    if resultado.dnis_no_encontrados_en_reporte:
+        logger.warning(
+            "%d DNI(s) de archivos de tutora no se encontraron en el reporte: %s",
+            len(resultado.dnis_no_encontrados_en_reporte),
+            sorted(set(resultado.dnis_no_encontrados_en_reporte)),
+        )
+
+    _marcar_inconsistencias_clase_por_clase(ws_main, idx, curso)
+    _aplicar_formato_general(ws_main)
+    autoajustar_columnas(ws_main)
+
+    wb_main.save(out_path)
+    logger.info("Archivo final generado: %s", out_path)
+    return out_path, resultado

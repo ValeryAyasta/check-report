@@ -30,15 +30,17 @@ class ConfiguracionCurso:
     grupo_c21: str = ""
 
     # ---- Particularidades del curso (excepciones a lo "normal") ----
-    # Lo normal es: 9 clases, con examen, con trabajo final visible en el
-    # Aula Virtual, y con trabajo del libro. Estos flags representan
-    # EXCEPCIONES para que el valor por defecto (todo en False/9) sea
-    # siempre el caso más común, y la tutora solo marque lo distinto.
+    # Lo normal es: 9 clases, con examen, y con trabajo final visible en
+    # el Aula Virtual. Estos flags representan EXCEPCIONES para que el
+    # valor por defecto (todo en False/9) sea siempre el caso más común,
+    # y la tutora solo marque lo distinto.
+    #
+    # Los devocionales / % de devocionales NO tienen flag: se calculan
+    # siempre, para todo curso, sin excepción.
     num_clases: int = 9
     sin_examen_final: bool = False
     sin_trabajo_final: bool = False
     trabajo_final_no_visible_en_av: bool = False
-    sin_trabajo_libro: bool = False
 
     # ---- Propiedades derivadas (para que el resto del código no
     # tenga que negar flags constantemente) ----
@@ -54,10 +56,6 @@ class ConfiguracionCurso:
     def trabajo_final_visible_en_av(self) -> bool:
         # Si el curso no tiene TF, tampoco puede estar "visible en AV".
         return self.tiene_trabajo_final and not self.trabajo_final_no_visible_en_av
-
-    @property
-    def tiene_trabajo_libro(self) -> bool:
-        return not self.sin_trabajo_libro
 
     @property
     def grupos(self) -> list[str]:
@@ -106,7 +104,6 @@ class ConfiguracionCurso:
             sin_examen_final="sin_examen_final" in form,
             sin_trabajo_final="sin_trabajo_final" in form,
             trabajo_final_no_visible_en_av="trabajo_final_no_visible_en_av" in form,
-            sin_trabajo_libro="sin_trabajo_libro" in form,
         )
         config.validar()
         return config

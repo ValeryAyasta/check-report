@@ -5,7 +5,11 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
+
+load_dotenv()  # lee variables desde un archivo .env si existe (solo para desarrollo local;
+                # en producción, configura las variables directamente en el servicio de hosting)
 
 import config
 from domain.curso import ConfiguracionCurso, ConfiguracionInvalidaError
