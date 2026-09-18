@@ -41,7 +41,18 @@ class ReporteFinalError(Exception):
 
 @dataclass
 class ResultadoCalculo:
-    dnis_no_encontrados_en_reporte: list[str] = field(default_factory=list)
+    # DNIs que aparecen en algún archivo de tutora (Drive) pero NO se
+    # encontraron en el reporte de Moodle (notas + checks, ya filtrado
+    # por grupo). Puede ser un alumno de otro grupo/curso, o un DNI mal
+    # tipeado en el Drive.
+    dnis_no_encontrados_en_drive_pero_no_en_moodle: list[str] = field(default_factory=list)
+
+    # Lo opuesto: alumnos que SÍ están en el reporte de Moodle (su fila
+    # existe en el reporte final) pero ninguna tutora tiene su registro
+    # de asistencia en Drive — su fila queda con "Estado Final" en
+    # blanco si esto pasa, así que vale la pena avisarlo.
+    alumnos_en_moodle_sin_registro_en_drive: list[str] = field(default_factory=list)
+
     tutores_procesados: list[str] = field(default_factory=list)
     archivos_tutor_sin_hoja_asistencia: list[str] = field(default_factory=list)
 
@@ -185,6 +196,7 @@ def _fue_entregado(valor_crudo) -> bool:
 def _procesar_archivo_tutor(
     archivo: Path, ws_main: Worksheet, dni_index: dict[str, int],
     idx: dict, curso: ConfiguracionCurso, resultado: ResultadoCalculo,
+    filas_con_registro_drive: set[int],
 ) -> None:
     try:
         wb_tutor = openpyxl.load_workbook(archivo, data_only=True, read_only=True)
@@ -222,10 +234,11 @@ def _procesar_archivo_tutor(
 
         dni_tutor = normalizar_dni_valor(dni_celda)
         if dni_tutor not in dni_index:
-            resultado.dnis_no_encontrados_en_reporte.append(dni_tutor)
+            resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle.append(dni_tutor)
             continue
 
         r = dni_index[dni_tutor]
+        filas_con_registro_drive.add(r)
 
         # El DNI/carnet que trae Moodle puede tener ceros a la izquierda
         # perdidos (Moodle lo exporta como número). El de la tutora sí
@@ -395,6 +408,34 @@ def _aplicar_formato_general(ws_main: Worksheet, columnas_estilizadas: set[int])
 
 
 # ============================================================
+# Utilidad liviana: solo lista qué DNIs menciona un archivo de tutora,
+# sin procesar nada más. La usa pipeline.py ANTES de armar el reporte
+# final, para saber si algún DNI del Drive de la tutora pertenece a
+# otro grupo en Moodle y "rescatarlo" en el reporte final igual.
+# ============================================================
+
+def extraer_dnis_tutor(archivo: Path) -> set[str]:
+    try:
+        wb_tutor = openpyxl.load_workbook(archivo, data_only=True, read_only=True)
+    except Exception as e:
+        raise ReporteFinalError(f"No se pudo abrir el archivo de la tutora '{archivo.name}': {e}") from e
+
+    if config.NOMBRE_HOJA_ASISTENCIA_TUTOR not in wb_tutor.sheetnames:
+        return set()
+
+    ws_asistencia = wb_tutor[config.NOMBRE_HOJA_ASISTENCIA_TUTOR]
+    col_dni_t = config.TUTOR_COL_DNI - 1
+
+    dnis = set()
+    for row in ws_asistencia.iter_rows(min_row=config.TUTOR_FILA_INICIO_DATOS):
+        dni_celda = row[col_dni_t].value if len(row) > col_dni_t else None
+        if not dni_celda:
+            break
+        dnis.add(normalizar_dni_valor(dni_celda))
+    return dnis
+
+
+# ============================================================
 # Punto de entrada
 # ============================================================
 
@@ -421,14 +462,29 @@ def generar_reporte_final(
     if not archivos_tutores:
         raise ReporteFinalError(f"No se encontró ningún archivo .xlsx de tutora en {tutores_dir}.")
 
+    filas_con_registro_drive: set[int] = set()
     for archivo in archivos_tutores:
-        _procesar_archivo_tutor(archivo, ws_main, dni_index, idx, curso, resultado)
+        _procesar_archivo_tutor(archivo, ws_main, dni_index, idx, curso, resultado, filas_con_registro_drive)
 
-    if resultado.dnis_no_encontrados_en_reporte:
+    if resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle:
         logger.warning(
-            "%d DNI(s) de archivos de tutora no se encontraron en el reporte: %s",
-            len(resultado.dnis_no_encontrados_en_reporte),
-            sorted(set(resultado.dnis_no_encontrados_en_reporte)),
+            "%d DNI(s) están en Drive pero no en el reporte de Moodle: %s",
+            len(resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle),
+            sorted(set(resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle)),
+        )
+
+    # Alumnos que SÍ están en el reporte de Moodle pero cuya fila nunca
+    # fue tocada por ningún archivo de tutora (ninguna tenía su DNI).
+    filas_sin_drive = set(dni_index.values()) - filas_con_registro_drive
+    for r in sorted(filas_sin_drive):
+        nombre = ws_main.cell(r, idx["nombre"]).value
+        dni = ws_main.cell(r, idx["dni"]).value
+        resultado.alumnos_en_moodle_sin_registro_en_drive.append(f"{nombre} ({dni})")
+    if resultado.alumnos_en_moodle_sin_registro_en_drive:
+        logger.warning(
+            "%d alumno(s) están en Moodle pero ninguna tutora tiene su registro en Drive: %s",
+            len(resultado.alumnos_en_moodle_sin_registro_en_drive),
+            resultado.alumnos_en_moodle_sin_registro_en_drive,
         )
 
     _marcar_inconsistencias_clase_por_clase(ws_main, idx, curso)

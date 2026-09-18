@@ -6,10 +6,9 @@ el curso EN EL AULA VIRTUAL — detectado automáticamente a partir de
 qué columnas trae el archivo, no de un checkbox que la tutora podría
 olvidar marcar.
 
-El filtrado por grupo (C11/C21) NO se hace acá: se hace directamente
-en la descarga (services/downloader.py), pasando el ID numérico de
-grupo que ingresa la tutora. Este módulo recibe archivos que ya vienen
-filtrados a un solo grupo.
+El filtrado por grupo (C11/C21) SÍ se hace acá (función filtrar_por_grupo),
+comparando texto contra la columna "Grupo" del export de notas — el
+archivo que llega de Moodle trae el curso completo, sin filtrar.
 
 Esto reemplaza los `cols_to_drop = [3, 9]` / `columns[6]` fijos del
 código original, que se desalineaban apenas un curso no tenía Trabajo
@@ -103,6 +102,32 @@ def aplicar_layout_notas(df_notas: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         list(df.columns), indicadores,
     )
     return df, indicadores
+
+
+def filtrar_por_grupo(df_notas: pd.DataFrame, grupos: list[str]) -> pd.DataFrame:
+    """Filtra solo a los alumnos de los grupos que le corresponden a la
+    tutora (ej. C11 / C21). El archivo de Moodle trae TODOS los grupos
+    del curso, así que este paso es necesario.
+
+    La comparación es insensible a mayúsculas/espacios (tanto acá como
+    en ConfiguracionCurso.grupos), para que "c11" o " C11 " también
+    crucen sin que la tutora tenga que escribirlo exactamente igual.
+    """
+    if "Grupo" not in df_notas.columns:
+        raise LayoutMoodleError(
+            "No se encontró la columna 'Grupo' en el archivo de notas: no se puede "
+            "filtrar por C11/C21. Revisa config.COLUMNAS_NOTAS_MOODLE."
+        )
+    grupo_normalizado = df_notas["Grupo"].astype(str).str.strip().str.upper()
+    grupos_normalizados = [g.strip().upper() for g in grupos]
+    filtrado = df_notas[grupo_normalizado.isin(grupos_normalizados)].copy()
+    if filtrado.empty:
+        raise LayoutMoodleError(
+            f"Ningún alumno del archivo pertenece a los grupos {grupos}. "
+            f"Grupos encontrados en el archivo: {sorted(df_notas['Grupo'].astype(str).unique())}. "
+            "Verifica los códigos de grupo ingresados en el formulario."
+        )
+    return filtrado
 
 
 def leer_checks(contenido_csv: bytes) -> pd.DataFrame:

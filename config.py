@@ -53,17 +53,17 @@ NOMBRE_HOJA_DEVOCIONALES_TUTOR = "DEVO"
 #                     si el curso tiene ese indicador en el Aula Virtual
 #                     (Examen Final / Trabajo Final).
 #     "informativa" -> se incluye si existe, pero no es obligatoria ni
-#                      se usa para nada más (ej: "Grupo": ya no se
-#                      necesita para filtrar, porque el filtrado por
-#                      grupo ahora se hace directamente en la descarga,
-#                      con el ID numérico de grupo que ingresa la tutora).
+#                      se usa para nada más. Actualmente ninguna columna
+#                      usa esta categoría ("Grupo" volvió a ser
+#                      obligatoria: es la que se usa para filtrar por
+#                      C11/C21, ver services/layout.filtrar_por_grupo).
 COLUMNAS_NOTAS_MOODLE = {
     "nombre":        {"patrones": ["nombre"],               "descartar": False, "condicional": None,     "clave_final": "Nombre"},
     "apellidos":     {"patrones": ["apellido"],              "descartar": False, "condicional": None,     "clave_final": "Apellidos"},
     "dni":           {"patrones": ["nombre de usuario"],     "descartar": False, "condicional": None,     "clave_final": "DNI"},
     "correo":        {"patrones": ["direcci", "correo"],     "descartar": True,  "condicional": None,     "clave_final": None},
     "telefono":      {"patrones": ["tel"],                   "descartar": True,  "condicional": None,     "clave_final": None},
-    "grupo":         {"patrones": ["grupo"],                 "descartar": False, "condicional": "informativa", "clave_final": "Grupo"},
+    "grupo":         {"patrones": ["grupo"],                 "descartar": False, "condicional": None,     "clave_final": "Grupo"},
     "asistencia_av": {"patrones": ["asistencia"],             "descartar": False, "condicional": None,     "clave_final": "Asistencia AV"},
     "tf_av":         {"patrones": ["tarea final", "trabajo final"], "descartar": False, "condicional": "opcional", "clave_final": "TF (AV)"},
     "ef_av":         {"patrones": ["examen final"],           "descartar": False, "condicional": "opcional", "clave_final": "EF (AV)"},

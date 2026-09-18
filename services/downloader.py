@@ -1,12 +1,13 @@
 """
 Descarga los reportes de Moodle (notas y checks de actividad) para un
-curso y un grupo específico. El filtrado por grupo (C11/C21) se hace
-acá, pasando el ID numérico de grupo que la tutora ingresó en el
-formulario — Moodle filtra el reporte del lado del servidor.
+curso completo (group=0, "todos los grupos"). El filtrado por grupo
+(C11/C21) NO se hace acá: se hace después, por texto, comparando contra
+la columna "Grupo" del export (ver services/layout.filtrar_por_grupo).
 
-Si la tutora tiene dos grupos a cargo (C11 y C21), pipeline.py llama a
-estos métodos una vez por cada uno y combina los resultados
-(ver services/reporte_unido.py).
+Se descarga el curso completo una sola vez, sin importar cuántos grupos
+tenga la tutora a cargo — es más simple y más rápido que pedirle a
+Moodle un grupo a la vez (que requeriría 2 descargas si la tutora tiene
+C11 y C21).
 
 Ambos métodos devuelven bytes crudos (no un DataFrame ya parseado):
 quien decide cómo interpretar esos bytes es services/layout.py, que es
@@ -33,8 +34,8 @@ class ReportDownloader:
         self.moodle_session = MoodleSession(usuario, password)
         self.session = self.moodle_session.login(timeout=timeout)
 
-    def descargar_csv_checks(self, course_id: int, group_id: int) -> bytes:
-        """Descarga el CSV de finalización de actividades (checks) para un grupo del curso."""
+    def descargar_csv_checks(self, course_id: int, group_id: int = 0) -> bytes:
+        """Descarga el CSV de finalización de actividades (checks) del curso completo."""
         params = {
             "course": course_id,
             "group": group_id,
@@ -57,8 +58,8 @@ class ReportDownloader:
             )
         return resp.content
 
-    def descargar_excel_notas(self, course_id: int, group_id: int) -> bytes:
-        """Descarga el Excel de calificaciones para un grupo del curso."""
+    def descargar_excel_notas(self, course_id: int, group_id: int = 0) -> bytes:
+        """Descarga el Excel de calificaciones del curso completo."""
         try:
             sesskey, itemids = self.moodle_session.obtener_sesskey(course_id, group_id)
         except Exception as e:

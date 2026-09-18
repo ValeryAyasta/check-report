@@ -48,7 +48,7 @@ def _tutor_xlsx(path: Path, alumnos: list[dict], num_clases: int = 9) -> None:
     wb.save(path)
 
 
-CURSO_NORMAL = ConfiguracionCurso(curso_id=1, nombre="Curso", grupo_c11="1", num_clases=9)
+CURSO_NORMAL = ConfiguracionCurso(curso_id=1, nombre="Curso", grupos_texto="1", num_clases=9)
 
 
 class TestFormulaDeAprobacion:
@@ -96,7 +96,7 @@ class TestFormulaDeAprobacion:
         assert ws.cell(2, mapa["Estado Final"]).value == esperado
 
     def test_curso_sin_examen_ni_trabajo_final_solo_usa_asistencia(self, tmp_path):
-        curso = ConfiguracionCurso(curso_id=1, nombre="Curso", grupo_c11="1", num_clases=9,
+        curso = ConfiguracionCurso(curso_id=1, nombre="Curso", grupos_texto="1", num_clases=9,
                                     sin_examen_final=True, sin_trabajo_final=True)
         alumno = {"nombre": "Alumno", "dni": "10000002"}
         tutor = {"dni": "10000002", "clases": 9}
@@ -150,10 +150,10 @@ class TestCruceDeIdentificadores:
 
         out_path, resultado = generar_reporte_final(
             ruta_reporte, ruta_tutores, tmp_path / "final.xlsx",
-            ConfiguracionCurso(curso_id=1, nombre="X", grupo_c11="1", num_clases=9,
+            ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="1", num_clases=9,
                                 sin_examen_final=True, sin_trabajo_final=True),
         )
-        assert resultado.dnis_no_encontrados_en_reporte == []
+        assert resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle == []
 
         wb = openpyxl.load_workbook(out_path)
         ws = wb.active
@@ -175,10 +175,10 @@ class TestCruceDeIdentificadores:
 
         out_path, resultado = generar_reporte_final(
             ruta_reporte, ruta_tutores, tmp_path / "final.xlsx",
-            ConfiguracionCurso(curso_id=1, nombre="X", grupo_c11="1", num_clases=9,
+            ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="1", num_clases=9,
                                 sin_examen_final=True, sin_trabajo_final=True),
         )
-        assert resultado.dnis_no_encontrados_en_reporte == []
+        assert resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle == []
 
         wb = openpyxl.load_workbook(out_path)
         ws = wb.active
@@ -195,7 +195,7 @@ class TestCruceDeIdentificadores:
         _reporte_unido_xlsx(ruta_reporte, [alumno], con_tf=False, con_ef=False)
         _tutor_xlsx(ruta_tutores / "Equipo1-Maria_Lopez.xlsx", [tutor])
 
-        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupo_c11="1", num_clases=9,
+        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="1", num_clases=9,
                                     sin_examen_final=True, sin_trabajo_final=True)
         out_path, _ = generar_reporte_final(ruta_reporte, ruta_tutores, tmp_path / "final.xlsx", curso)
 
@@ -210,11 +210,72 @@ class TestNotaDeAsistencia:
         (0, 0), (1, 2), (5, 10), (6, 13), (9, 20),
     ])
     def test_tabla_de_9_clases(self, asistidas, esperado):
-        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupo_c11="1", num_clases=9)
+        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="1", num_clases=9)
         assert calcular_nota_asistencia(asistidas, curso) == esperado
 
     def test_curso_de_8_clases_usa_escala_proporcional(self):
-        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupo_c11="1", num_clases=8)
+        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="1", num_clases=8)
         assert calcular_nota_asistencia(8, curso) == 20  # asistió a todas
         assert calcular_nota_asistencia(0, curso) == 0
         assert calcular_nota_asistencia(4, curso) == 10  # la mitad
+
+
+class TestAdvertenciasDeCruce:
+    def test_alumno_en_moodle_sin_registro_en_drive_se_reporta(self, tmp_path):
+        """El alumno existe en el reporte de Moodle pero ninguna tutora
+        tiene su DNI en su archivo de Drive."""
+        alumnos = [
+            {"nombre": "Ana", "dni": "10000010"},
+            {"nombre": "Beto", "dni": "10000011"},  # este NO va a estar en ningún archivo de tutora
+        ]
+        ruta_reporte = tmp_path / "reporte.xlsx"
+        ruta_tutores = tmp_path / "tutores"
+        ruta_tutores.mkdir()
+        _reporte_unido_xlsx(ruta_reporte, alumnos, con_tf=False, con_ef=False)
+        _tutor_xlsx(ruta_tutores / "Tutora.xlsx", [{"dni": "10000010", "clases": 9}])  # solo Ana
+
+        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="C11", num_clases=9,
+                                    sin_examen_final=True, sin_trabajo_final=True)
+        out_path, resultado = generar_reporte_final(ruta_reporte, ruta_tutores, tmp_path / "final.xlsx", curso)
+
+        assert len(resultado.alumnos_en_moodle_sin_registro_en_drive) == 1
+        assert "10000011" in resultado.alumnos_en_moodle_sin_registro_en_drive[0]
+        assert resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle == []
+
+    def test_dni_en_drive_pero_no_en_moodle_se_reporta_por_separado(self, tmp_path):
+        """Caso opuesto: el DNI está en un archivo de tutora, pero no
+        existe en el reporte de Moodle (otro grupo/curso, o mal tipeado)."""
+        alumnos = [{"nombre": "Ana", "dni": "10000020"}]
+        ruta_reporte = tmp_path / "reporte.xlsx"
+        ruta_tutores = tmp_path / "tutores"
+        ruta_tutores.mkdir()
+        _reporte_unido_xlsx(ruta_reporte, alumnos, con_tf=False, con_ef=False)
+        _tutor_xlsx(ruta_tutores / "Tutora.xlsx", [
+            {"dni": "10000020", "clases": 9},
+            {"dni": "99999999", "clases": 9},  # no está en el reporte de Moodle
+        ])
+
+        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="C11", num_clases=9,
+                                    sin_examen_final=True, sin_trabajo_final=True)
+        out_path, resultado = generar_reporte_final(ruta_reporte, ruta_tutores, tmp_path / "final.xlsx", curso)
+
+        assert resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle == ["99999999"]
+        assert resultado.alumnos_en_moodle_sin_registro_en_drive == []
+
+
+class TestExtraerDnisTutor:
+    def test_extrae_los_dnis_de_un_archivo(self, tmp_path):
+        from services.calculator import extraer_dnis_tutor
+        ruta = tmp_path / "Tutora.xlsx"
+        _tutor_xlsx(ruta, [{"dni": "10000030", "clases": 9}, {"dni": "07144588", "clases": 5}])
+
+        dnis = extraer_dnis_tutor(ruta)
+        assert dnis == {"10000030", "7144588"}  # normalizado, sin ceros a la izquierda
+
+    def test_archivo_sin_hoja_asistencia_devuelve_vacio(self, tmp_path):
+        import openpyxl
+        from services.calculator import extraer_dnis_tutor
+        ruta = tmp_path / "SinHoja.xlsx"
+        openpyxl.Workbook().save(ruta)  # hoja por defecto "Sheet", no "ASISTENCIA"
+
+        assert extraer_dnis_tutor(ruta) == set()
