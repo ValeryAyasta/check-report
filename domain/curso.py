@@ -9,6 +9,7 @@ una estructura fija.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -17,17 +18,21 @@ class ConfiguracionInvalidaError(Exception):
     pass
 
 
+# Separa por comas, punto y coma, o cualquier espacio en blanco — así
+# "C11, C21", "C11 C21" y "c11,c21" funcionan todos igual.
+_SEPARADOR_GRUPOS = re.compile(r"[,;\s]+")
+
+
 @dataclass
 class ConfiguracionCurso:
     curso_id: int
     nombre: str
 
-    # ID numérico del grupo en Moodle (lo encuentra la tutora en la URL
-    # de su grupo dentro del curso). Aunque conceptualmente sea siempre
-    # "C11"/"C21" para esta iglesia, Moodle usa un ID interno DISTINTO
-    # por cada curso — por eso se ingresa el número, no el texto.
-    grupo_c11: str = ""
-    grupo_c21: str = ""
+    # Códigos de grupo tal como los escribe la tutora en un solo campo,
+    # separados por coma/espacio (ej. "C11, C21"). Se parsean con la
+    # propiedad `grupos` más abajo — nunca se usa este campo crudo
+    # directamente en el resto del código.
+    grupos_texto: str = ""
 
     # ---- Particularidades del curso (excepciones a lo "normal") ----
     # Lo normal es: 9 clases, con examen, y con trabajo final visible en
@@ -59,22 +64,26 @@ class ConfiguracionCurso:
 
     @property
     def grupos(self) -> list[str]:
-        """IDs numéricos de grupo de Moodle a consultar (C11 / C21), sin vacíos."""
-        return [g.strip() for g in (self.grupo_c11, self.grupo_c21) if g and g.strip()]
+        """Códigos de grupo (C11 / C21) a filtrar, parseados de
+        `grupos_texto`, en MAYÚSCULAS, sin duplicados y en el orden en
+        que se escribieron. La comparación contra la columna "Grupo"
+        del Excel también normaliza a mayúsculas, así que no importa
+        cómo la tutora los haya escrito."""
+        partes = _SEPARADOR_GRUPOS.split(self.grupos_texto.strip())
+        vistos: list[str] = []
+        for p in partes:
+            p = p.strip().upper()
+            if p and p not in vistos:
+                vistos.append(p)
+        return vistos
 
     def validar(self) -> None:
         if self.curso_id <= 0:
             raise ConfiguracionInvalidaError("El ID de curso debe ser un número positivo.")
         if not self.grupos:
             raise ConfiguracionInvalidaError(
-                "Debes ingresar al menos un ID de grupo (C11 o C21)."
+                "Debes ingresar al menos un código de grupo (ej: C11, C21)."
             )
-        for g in self.grupos:
-            if not g.isdigit():
-                raise ConfiguracionInvalidaError(
-                    f"'{g}' no parece un ID de grupo de Moodle válido (debe ser un número, "
-                    "ej: 45094). Lo encuentras en la URL del grupo dentro del curso en Moodle."
-                )
         if self.num_clases <= 0 or self.num_clases > 20:
             raise ConfiguracionInvalidaError(
                 "El número de clases debe ser un valor razonable (entre 1 y 20)."
@@ -98,8 +107,7 @@ class ConfiguracionCurso:
         config = cls(
             curso_id=curso_id,
             nombre=nombre,
-            grupo_c11=(form.get("grupo_c11") or "").strip(),
-            grupo_c21=(form.get("grupo_c21") or "").strip(),
+            grupos_texto=(form.get("grupos") or "").strip(),
             num_clases=num_clases,
             sin_examen_final="sin_examen_final" in form,
             sin_trabajo_final="sin_trabajo_final" in form,

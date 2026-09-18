@@ -1,11 +1,15 @@
 """
-Construye el reporte "unido": notas de Moodle + estado de finalización
-de cada clase (checks), cruzados por DNI — para cada grupo que ingresó
-la tutora (C11, C21, o ambos), y luego combinados en un solo reporte.
+Construye el reporte "unido": notas de Moodle (filtradas por grupo de
+la tutora) + estado de finalización de cada clase (checks), cruzados
+por DNI.
 
-El filtrado por grupo ya viene hecho desde la descarga (se le pide a
-Moodle el ID numérico de cada grupo por separado), así que acá solo se
-combinan los resultados de cada grupo.
+El curso se descarga completo (todos los grupos) una sola vez; el
+filtrado a los grupos de la tutora (C11/C21) se hace acá, por texto,
+contra la columna "Grupo" (ver services/layout.filtrar_por_grupo). El
+cruce con checks se hace ANTES de filtrar, así que el resultado guarda
+también la versión sin filtrar (df_todos_los_grupos) — se usa en
+pipeline.py para "rescatar" alumnos que la tutora sí tiene en su Drive
+pero que Moodle tiene asignados a otro grupo.
 
 Cambio clave respecto al original: antes se pegaban notas y checks
 "lado a lado" (concat por posición), asumiendo que las filas venían en
@@ -33,78 +37,25 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ResultadoReporteUnido:
     df: pd.DataFrame
+    df_todos_los_grupos: pd.DataFrame  # notas+checks de TODO el curso, sin filtrar por grupo
     indicadores_av: dict          # {"tiene_tf_av": bool, "tiene_ef_av": bool}
     num_clases_detectado: int     # clases encontradas en el CSV de checks
     alumnos_sin_checks: list[str] = field(default_factory=list)  # DNIs en notas sin match en checks
     advertencias: list[str] = field(default_factory=list)
 
 
-def _procesar_un_grupo(grupo_id: str, notas_bytes: bytes, checks_bytes: bytes) -> tuple[pd.DataFrame, dict, int]:
+def construir_reporte_unido(
+    notas_bytes: bytes, checks_bytes: bytes, curso: ConfiguracionCurso
+) -> ResultadoReporteUnido:
+    advertencias = []
+
     df_notas_crudo = pd.read_excel(io.BytesIO(notas_bytes))
-    df_notas, indicadores_av = layout.aplicar_layout_notas(df_notas_crudo)
-    df_notas["DNI"] = df_notas["DNI"].astype(str).str.strip()
+    df_notas, indicadores_av = layout.aplicar_layout_notas(df_notas_crudo)  # TODOS los grupos
 
     df_checks = layout.leer_checks(checks_bytes)
-    df_checks["DNI"] = df_checks["DNI"].astype(str).str.strip()
-    num_clases_detectado = len([c for c in df_checks.columns if c != "DNI"])
+    columnas_clase = [c for c in df_checks.columns if c != "DNI"]
+    num_clases_detectado = len(columnas_clase)
 
-    df = df_notas.merge(df_checks, on="DNI", how="left", indicator=True)
-    df["_grupo_id"] = grupo_id
-    return df, indicadores_av, num_clases_detectado
-
-
-def construir_reporte_unido(
-    archivos_por_grupo: dict[str, tuple[bytes, bytes]], curso: ConfiguracionCurso
-) -> ResultadoReporteUnido:
-    """
-    archivos_por_grupo: { "45094": (notas_bytes, checks_bytes), "45071": (...) }
-    Una entrada por cada ID de grupo que ingresó la tutora (C11 / C21).
-    """
-    advertencias = []
-    partes = []
-    indicadores_por_grupo = {}
-    num_clases_por_grupo = {}
-
-    for grupo_id, (notas_bytes, checks_bytes) in archivos_por_grupo.items():
-        df, indicadores_av, num_clases_detectado = _procesar_un_grupo(grupo_id, notas_bytes, checks_bytes)
-        partes.append(df)
-        indicadores_por_grupo[grupo_id] = indicadores_av
-        num_clases_por_grupo[grupo_id] = num_clases_detectado
-
-    df = pd.concat(partes, ignore_index=True)
-
-    # Si algún alumno aparece en más de un grupo (no debería pasar, pero
-    # por seguridad), se conserva solo la primera aparición y se avisa.
-    duplicados = df[df.duplicated("DNI", keep=False)]
-    if not duplicados.empty:
-        dnis_dup = sorted(duplicados["DNI"].unique())
-        advertencias.append(
-            f"{len(dnis_dup)} alumno(s) aparecen en más de un grupo descargado, se usó solo "
-            f"la primera aparición: {', '.join(dnis_dup)}"
-        )
-        df = df.drop_duplicates("DNI", keep="first")
-
-    # Los indicadores (tiene EF/TF en AV) deberían ser iguales para todos
-    # los grupos de un mismo curso; si no lo son, es una señal real de
-    # que algo no calza y hay que avisar en vez de elegir uno en silencio.
-    valores_indicadores = list(indicadores_por_grupo.values())
-    indicadores_av = valores_indicadores[0] if valores_indicadores else {}
-    if any(v != indicadores_av for v in valores_indicadores):
-        advertencias.append(
-            f"Los grupos descargados no coinciden en qué indicadores tienen en el Aula "
-            f"Virtual: {indicadores_por_grupo}. Se usó el del primer grupo; revisa que "
-            "los IDs de grupo correspondan al mismo curso."
-        )
-        for otros in valores_indicadores[1:]:
-            indicadores_av = {k: (indicadores_av.get(k) or otros.get(k)) for k in indicadores_av}
-
-    valores_num_clases = list(num_clases_por_grupo.values())
-    num_clases_detectado = max(valores_num_clases) if valores_num_clases else 0
-    if len(set(valores_num_clases)) > 1:
-        advertencias.append(
-            f"Los grupos descargados no tienen el mismo número de clases en el CSV de "
-            f"checks: {num_clases_por_grupo}."
-        )
     if num_clases_detectado != curso.num_clases:
         advertencias.append(
             f"Marcaste {curso.num_clases} clases en el formulario, pero el archivo de "
@@ -112,8 +63,19 @@ def construir_reporte_unido(
             f"indica el formulario para calcular notas; revisa que sea correcto."
         )
 
+    # Se cruza por DNI UNA sola vez, con el curso completo (todos los
+    # grupos) — es barato (un curso normal son un par de cientos de
+    # filas), y así se puede filtrar por grupo sin tener que volver a
+    # descargar ni volver a cruzar nada. df_todos_los_grupos se guarda
+    # completo por si algún alumno del Drive de la tutora terminó
+    # asignado a otro grupo en Moodle (ver pipeline.py, que lo usa para
+    # "rescatarlo" igual en el reporte final).
+    df_todos = df_notas.merge(df_checks, on="DNI", how="left", indicator=True)
+    df_filtrado = layout.filtrar_por_grupo(df_todos, curso.grupos)
+
     alumnos_sin_checks = (
-        df.loc[df["_merge"] == "left_only", "Nombre"] + " " + df.loc[df["_merge"] == "left_only", "Apellidos"]
+        df_filtrado.loc[df_filtrado["_merge"] == "left_only", "Nombre"]
+        + " " + df_filtrado.loc[df_filtrado["_merge"] == "left_only", "Apellidos"]
     ).tolist()
     if alumnos_sin_checks:
         advertencias.append(
@@ -122,17 +84,49 @@ def construir_reporte_unido(
             "actividad todavía): " + ", ".join(alumnos_sin_checks[:10])
             + ("..." if len(alumnos_sin_checks) > 10 else "")
         )
-    df = df.drop(columns=["_merge", "_grupo_id"])
+
+    df = df_filtrado.drop(columns=["_merge"])
+    df_todos = df_todos.drop(columns=["_merge"])
 
     logger.info(
-        "Reporte unido construido: %d alumnos (%d grupo(s)), %d sin match en checks.",
-        len(df), len(archivos_por_grupo), len(alumnos_sin_checks),
+        "Reporte unido construido: %d alumnos (grupos: %s) de %d en el curso completo, "
+        "%d sin match en checks.",
+        len(df), curso.grupos, len(df_todos), len(alumnos_sin_checks),
     )
 
     return ResultadoReporteUnido(
         df=df,
+        df_todos_los_grupos=df_todos,
         indicadores_av=indicadores_av,
         num_clases_detectado=num_clases_detectado,
         alumnos_sin_checks=alumnos_sin_checks,
         advertencias=advertencias,
     )
+
+
+def rescatar_alumnos_de_otro_grupo(
+    df_filtrado: pd.DataFrame, df_todos_los_grupos: pd.DataFrame, dnis_tutor: set[str],
+) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Si algún DNI que la tutora tiene en su Drive no aparece en el
+    reporte ya filtrado por grupo, se busca en el curso completo (sin
+    filtrar). Si existe ahí, se agrega igual al reporte final — lo que
+    importa es que la tutora sí lo tiene registrado, aunque Moodle lo
+    tenga asignado a otro grupo.
+
+    Devuelve (df_con_los_rescatados_agregados, lista_de_textos_para_advertencia).
+    """
+    dnis_faltantes = dnis_tutor - set(df_filtrado["DNI"])
+    if not dnis_faltantes:
+        return df_filtrado, []
+
+    filas_recuperadas = df_todos_los_grupos[df_todos_los_grupos["DNI"].isin(dnis_faltantes)]
+    if filas_recuperadas.empty:
+        return df_filtrado, []
+
+    textos = [
+        f"{fila['Nombre']} {fila['Apellidos']} (DNI {fila['DNI']}, grupo real: {fila['Grupo']})"
+        for _, fila in filas_recuperadas.iterrows()
+    ]
+    df_resultado = pd.concat([df_filtrado, filas_recuperadas], ignore_index=True)
+    return df_resultado, textos
