@@ -145,4 +145,5 @@ TUTOR_COL_EF_DRIVE = 37           # columna AK ("E1"): nota de Examen Final regi
 TUTOR_DEVO_FILA_OFFSET = 1        # la fila de devocionales está 1 fila debajo de la de asistencia
 TUTOR_DEVO_COL_INICIO = 7         # columna G: primer día de devocional
 TUTOR_DEVO_TOTAL_DIAS = 63        # cantidad de días de devocional en la hoja DEVO
+TUTOR_COL_NOMBRE = 4
 # ✅ Verificado contra un archivo real de tutora: todos estos offsets calzan exacto.
