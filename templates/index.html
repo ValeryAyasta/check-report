@@ -117,27 +117,27 @@
 <body>
   <div class="container">
     <h1>Reporte de Asistencia — Discipulado</h1>
-    <p class="subtitulo">Compara notas y asistencia del Aula Virtual contra los registros de las tutoras en Drive.</p>
+    <p class="subtitulo">Compara notas y asistencia del Aula Virtual contra los registros de los tutores en Drive.</p>
 
     <form method="post" action="/generar-reporte" enctype="multipart/form-data" id="form-reporte">
 
       <fieldset>
-        <legend>Credenciales de Moodle</legend>
+        <legend>Credenciales del Aula Virtual</legend>
         <label>Usuario (DNI)
-          <input type="text" name="usuario" placeholder="Tu usuario de Moodle" required>
+          <input type="text" name="usuario" placeholder="Tu usuario del Aula Virtual" required>
         </label>
         <label>Contraseña
-          <input type="password" name="password" placeholder="Tu contraseña de Moodle" required>
+          <input type="password" name="password" placeholder="Tu contraseña del Aula Virtual" required>
         </label>
         <div class="ayuda">Tus credenciales se usan solo para esta descarga y no se guardan en el servidor.</div>
       </fieldset>
 
       <fieldset>
         <legend>Curso</legend>
-        <label>ID del curso en Moodle
+        <label>ID del curso en el Aula Virtual
           <input type="text" inputmode="numeric" name="curso_id" placeholder="Ej: 440" required>
         </label>
-        <div class="ayuda">Lo encuentras en la URL del curso en Moodle (…/course/view.php?id=440).</div>
+        <div class="ayuda">Lo encuentras en la URL del curso en el Aula Virtual (…/course/view.php?id=440).</div>
 
         <label>Nombre del curso <span style="font-weight:400;">(opcional, solo para el nombre del archivo)</span>
           <input type="text" name="nombre_curso" placeholder="Ej: Discipulado I 2026-III">
@@ -177,7 +177,7 @@
           <input type="checkbox" id="trabajo_final_no_visible_en_av" name="trabajo_final_no_visible_en_av" >
           <div>
             <label for="trabajo_final_no_visible_en_av">El Trabajo Final NO se sube al Aula Virtual</label>
-            <div class="ayuda">Úsalo cuando la tutora sí registra la nota de TF en su Drive, pero ese curso no lo sube a Moodle.</div>
+            <div class="ayuda">Úsalo cuando el tutor sí registra la nota de TF en su Drive, pero ese curso no lo sube al Aula Virtual.</div>
           </div>
         </div>
       </fieldset>
@@ -185,9 +185,9 @@
       <fieldset>
         <legend>Archivos</legend>
 
-        <label>Archivos de asistencia de las tutoras (Drive)</label>
+        <label>Archivos de asistencia de los tutores (Drive)</label>
         <input type="file" name="tutores" multiple accept=".xlsx" required>
-        <div class="file-details">Puedes seleccionar varios archivos .xlsx a la vez (uno por tutora).</div>
+        <div class="file-details">Puedes seleccionar varios archivos .xlsx a la vez (uno por tutor).</div>
       </fieldset>
 
       <button type="submit" id="btn-generar">Generar reporte</button>
@@ -198,7 +198,7 @@
 
   <div id="overlay">
     <div class="spinner"></div>
-    <p id="overlay-texto">Descargando y comparando la información de Moodle con los archivos de las tutoras…</p>
+    <p id="overlay-texto">Descargando y comparando la información del Aula Virtual con los archivos de los tutores…</p>
     <p class="aviso-tiempo">Esto puede tardar 1 o 2 minutos según el tamaño del curso. No cierres esta pestaña.</p>
   </div>
 

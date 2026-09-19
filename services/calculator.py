@@ -41,10 +41,11 @@ class ReporteFinalError(Exception):
 
 @dataclass
 class ResultadoCalculo:
-    # DNIs que aparecen en algún archivo de tutora (Drive) pero NO se
-    # encontraron en el reporte de Moodle (notas + checks, ya filtrado
-    # por grupo). Puede ser un alumno de otro grupo/curso, o un DNI mal
-    # tipeado en el Drive.
+    # Alumnos que aparecen en algún archivo de tutor (Drive) pero cuyo
+    # DNI NO se encontró en ningún grupo del curso completo en Moodle
+    # (después de intentar "rescatarlos" de otro grupo en pipeline.py).
+    # Cada entrada ya viene formateada como texto legible: nombre, DNI
+    # y de qué archivo salió, para que se pueda ubicar y corregir.
     dnis_no_encontrados_en_drive_pero_no_en_moodle: list[str] = field(default_factory=list)
 
     # Lo opuesto: alumnos que SÍ están en el reporte de Moodle (su fila
@@ -218,6 +219,7 @@ def _procesar_archivo_tutor(
     resultado.tutores_procesados.append(tutor_nombre)
     logger.info("Procesando tutora: %s (%s)", tutor_nombre, archivo.name)
 
+    col_nombre_t = config.TUTOR_COL_NOMBRE - 1
     col_dni_t = config.TUTOR_COL_DNI - 1              # a índice 0
     col_asist_ini_t = config.TUTOR_COL_ASISTENCIA_INICIO - 1
     col_tf_t = config.TUTOR_COL_TF_DRIVE - 1
@@ -234,7 +236,11 @@ def _procesar_archivo_tutor(
 
         dni_tutor = normalizar_dni_valor(dni_celda)
         if dni_tutor not in dni_index:
-            resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle.append(dni_tutor)
+            nombre_celda = row[col_nombre_t].value if len(row) > col_nombre_t else None
+            nombre_tutor = str(nombre_celda).strip() if nombre_celda else "(sin nombre en el Drive)"
+            resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle.append(
+                f"{nombre_tutor} — DNI {dni_tutor} — archivo: {archivo.name}"
+            )
             continue
 
         r = dni_index[dni_tutor]
