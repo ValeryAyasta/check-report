@@ -1,10 +1,17 @@
+"""
+Tests de infrastructure/excel/excel_writer.py: generación del Excel
+final (cruce por DNI + escritura de celdas + formato). Estos SÍ
+necesitan construir archivos .xlsx completos, porque prueban la
+integración de extremo a extremo — para probar la REGLA de aprobación
+en sí, aislada, ver tests/test_calculo_asistencia.py.
+"""
 from pathlib import Path
 
 import openpyxl
 import pytest
 
 from domain.curso import ConfiguracionCurso
-from services.calculator import generar_reporte_final, calcular_nota_asistencia
+from infrastructure.excel.excel_writer import generar_reporte_final, extraer_dnis_tutor
 
 
 def _reporte_unido_xlsx(path: Path, alumnos: list[dict], con_tf: bool, con_ef: bool) -> None:
@@ -51,10 +58,11 @@ def _tutor_xlsx(path: Path, alumnos: list[dict], num_clases: int = 9) -> None:
 CURSO_NORMAL = ConfiguracionCurso(curso_id=1, nombre="Curso", grupos_texto="1", num_clases=9)
 
 
-class TestFormulaDeAprobacion:
-    """Los 5 escenarios validados manualmente al implementar la regla:
-    mínimo 6 clases AND resolvió examen (si aplica) AND entregó TF (si
-    aplica) AND promedio(indicadores aplicables) >= 10.5."""
+class TestFormulaDeAprobacionEndToEnd:
+    """Los mismos 5 escenarios de tests/test_calculo_asistencia.py, pero
+    generando el Excel completo, para confirmar que excel_writer.py
+    efectivamente llama a domain/calculo_asistencia.py y vuelca bien
+    el resultado en la celda 'Estado Final'."""
 
     @pytest.mark.parametrize("caso,esperado", [
         pytest.param(
@@ -205,21 +213,6 @@ class TestCruceDeIdentificadores:
         assert ws.cell(2, mapa["Grupo"]).value == "Equipo1-Maria Lopez"
 
 
-class TestNotaDeAsistencia:
-    @pytest.mark.parametrize("asistidas,esperado", [
-        (0, 0), (1, 2), (5, 10), (6, 13), (9, 20),
-    ])
-    def test_tabla_de_9_clases(self, asistidas, esperado):
-        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="1", num_clases=9)
-        assert calcular_nota_asistencia(asistidas, curso) == esperado
-
-    def test_curso_de_8_clases_usa_escala_proporcional(self):
-        curso = ConfiguracionCurso(curso_id=1, nombre="X", grupos_texto="1", num_clases=8)
-        assert calcular_nota_asistencia(8, curso) == 20  # asistió a todas
-        assert calcular_nota_asistencia(0, curso) == 0
-        assert calcular_nota_asistencia(4, curso) == 10  # la mitad
-
-
 class TestAdvertenciasDeCruce:
     def test_alumno_en_moodle_sin_registro_en_drive_se_reporta(self, tmp_path):
         """El alumno existe en el reporte de Moodle pero ninguna tutora
@@ -259,13 +252,16 @@ class TestAdvertenciasDeCruce:
                                     sin_examen_final=True, sin_trabajo_final=True)
         out_path, resultado = generar_reporte_final(ruta_reporte, ruta_tutores, tmp_path / "final.xlsx", curso)
 
-        assert resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle == ["99999999"]
+        # El campo guarda un texto descriptivo (nombre — DNI — archivo),
+        # no el DNI pelado, para poder ubicar y corregir el dato en el
+        # Drive de la tutora sin tener que adivinar de qué archivo salió.
+        assert len(resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle) == 1
+        assert "99999999" in resultado.dnis_no_encontrados_en_drive_pero_no_en_moodle[0]
         assert resultado.alumnos_en_moodle_sin_registro_en_drive == []
 
 
 class TestExtraerDnisTutor:
     def test_extrae_los_dnis_de_un_archivo(self, tmp_path):
-        from services.calculator import extraer_dnis_tutor
         ruta = tmp_path / "Tutora.xlsx"
         _tutor_xlsx(ruta, [{"dni": "10000030", "clases": 9}, {"dni": "07144588", "clases": 5}])
 
@@ -273,8 +269,6 @@ class TestExtraerDnisTutor:
         assert dnis == {"10000030", "7144588"}  # normalizado, sin ceros a la izquierda
 
     def test_archivo_sin_hoja_asistencia_devuelve_vacio(self, tmp_path):
-        import openpyxl
-        from services.calculator import extraer_dnis_tutor
         ruta = tmp_path / "SinHoja.xlsx"
         openpyxl.Workbook().save(ruta)  # hoja por defecto "Sheet", no "ASISTENCIA"
 

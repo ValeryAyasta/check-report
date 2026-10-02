@@ -7,6 +7,12 @@ Orquesta el pipeline completo:
 Las credenciales de Moodle SIEMPRE vienen como parámetro (las ingresa la
 tutora en el formulario en cada ejecución) — nunca se guardan en el
 servidor ni tienen un valor por defecto en el código.
+
+Este módulo es el "composition root" del proyecto: es el único lugar
+que decide CON QUÉ Moodle concreto hablar (armando MoodleSettings /
+MoodleSession reales a partir de config.py) — ver el parámetro opcional
+`moodle_session` de ejecutar_pipeline() más abajo para cómo se inyecta
+uno distinto en los tests.
 """
 from __future__ import annotations
 
@@ -16,18 +22,22 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from domain.curso import ConfiguracionCurso
-from services.auth import LoginError
-from services.downloader import ReportDownloader, DownloadError
-from services.reporte_unido import construir_reporte_unido, rescatar_alumnos_de_otro_grupo
-from services.calculator import generar_reporte_final, extraer_dnis_tutor, ReporteFinalError, ResultadoCalculo
-from services.layout import LayoutMoodleError
+# PipelineError se re-exporta para no romper `from pipeline import
+# PipelineError` en app.py. LoginError, DownloadError y
+# LayoutMoodleError, ReporteFinalError ya NO se traducen a
+# PipelineError acá abajo: como todas heredan de CheckReportError
+# (ver domain/excepciones.py), app.py las atrapa igual con un único
+# `except CheckReportError`, con su mensaje y su `codigo` originales
+# intactos — traducirlas a PipelineError solo perdía esa información
+# sin aportar nada.
+from domain.excepciones import PipelineError
+from infrastructure.moodle.auth import MoodleSession
+from infrastructure.moodle.settings import MoodleSettings
+from infrastructure.moodle.downloader import ReportDownloader
+from application.reporte_service import construir_reporte_unido, rescatar_alumnos_de_otro_grupo
+from infrastructure.excel.excel_writer import generar_reporte_final, extraer_dnis_tutor, ResultadoCalculo
 
 logger = logging.getLogger(__name__)
-
-
-class PipelineError(Exception):
-    """Error de negocio esperado en algún paso (el mensaje ya está listo para mostrarse al usuario)."""
-    pass
 
 
 @dataclass
@@ -54,7 +64,19 @@ def ejecutar_pipeline(
     tutores_dir: Path,
     dir_trabajo: Path,
     on_progreso: Optional[Callable[[str], None]] = None,
+    moodle_session: Optional[MoodleSession] = None,
 ) -> ResultadoPipeline:
+    """
+    `moodle_session` es el punto de inyección de dependencias hacia
+    Moodle: si no se pasa (el caso normal, como lo llama app.py), acá
+    mismo se arma la sesión REAL a partir de `config.py`
+    (MoodleSettings.desde_config()) — este es el "composition root"
+    del proyecto, el único lugar donde código de negocio decide con
+    qué Moodle concreto hablar. Un test de este pipeline, en cambio,
+    puede pasar una MoodleSession ya construida contra una URL falsa
+    (o con un `requests.Session` falso adentro) sin tocar config.py
+    para nada (ver tests/test_pipeline.py).
+    """
     def avisar(mensaje: str) -> None:
         logger.info(mensaje)
         if on_progreso:
@@ -63,23 +85,22 @@ def ejecutar_pipeline(
     dir_trabajo.mkdir(parents=True, exist_ok=True)
 
     avisar("Iniciando sesión en Moodle...")
-    try:
-        downloader = ReportDownloader(usuario, password)
-    except LoginError as e:
-        raise PipelineError(str(e)) from e
+    if moodle_session is None:
+        moodle_session = MoodleSession(usuario, password, MoodleSettings.desde_config())
+    downloader = ReportDownloader(moodle_session)
+    # LoginError (si el login falla) se deja subir tal cual: ya es un
+    # CheckReportError con mensaje listo para la usuaria, no hace
+    # falta envolverlo en PipelineError (ver import de arriba).
+    downloader.iniciar_sesion()
 
     avisar(f"Descargando notas y checks del curso {curso.curso_id}...")
-    try:
-        notas_bytes = downloader.descargar_excel_notas(curso.curso_id)
-        checks_bytes = downloader.descargar_csv_checks(curso.curso_id)
-    except DownloadError as e:
-        raise PipelineError(str(e)) from e
+    # Idem con DownloadError.
+    notas_bytes = downloader.descargar_excel_notas(curso.curso_id)
+    checks_bytes = downloader.descargar_csv_checks(curso.curso_id)
 
     avisar(f"Filtrando alumnos de los grupos {curso.grupos}...")
-    try:
-        resultado_unido = construir_reporte_unido(notas_bytes, checks_bytes, curso)
-    except LayoutMoodleError as e:
-        raise PipelineError(str(e)) from e
+    # Idem con LayoutMoodleError.
+    resultado_unido = construir_reporte_unido(notas_bytes, checks_bytes, curso)
 
     df_reporte = resultado_unido.df
 
@@ -107,10 +128,8 @@ def ejecutar_pipeline(
         c if c.isalnum() else "_" for c in curso.nombre
     ) + ".xlsx"
     ruta_final = dir_trabajo / nombre_archivo
-    try:
-        ruta_final, calculo = generar_reporte_final(ruta_reporte, tutores_dir, ruta_final, curso)
-    except ReporteFinalError as e:
-        raise PipelineError(str(e)) from e
+    # Idem con ReporteFinalError.
+    ruta_final, calculo = generar_reporte_final(ruta_reporte, tutores_dir, ruta_final, curso)
 
     advertencias = list(resultado_unido.advertencias)
 

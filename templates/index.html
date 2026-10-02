@@ -7,6 +7,7 @@
   <style>
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 16px;
       margin: 0;
       padding: 0;
       background: #f4f6f8;
@@ -22,7 +23,7 @@
     }
 
     h1 { text-align: center; margin-bottom: 8px; font-size: 1.6rem; }
-    .subtitulo { text-align: center; color: #666; margin-bottom: 24px; font-size: 0.9rem; }
+    .subtitulo { text-align: center; color: #666; margin-bottom: 24px; font-size: 0.95rem; }
 
     fieldset {
       border: 1px solid #e0e0e0;
@@ -33,25 +34,30 @@
     legend { font-weight: 700; padding: 0 6px; color: #333; }
 
     form label { display: block; font-weight: 600; margin-top: 10px; margin-bottom: 4px; }
-    .ayuda { font-weight: 400; font-size: 12px; color: #777; margin: -2px 0 6px; }
+    .ayuda { font-weight: 400; font-size: 14px; color: #666; margin: -2px 0 6px; }
 
     input[type="text"], input[type="password"], input[type="number"],
     select, input[type="file"] {
       width: 100%;
-      padding: 8px 10px;
+      padding: 10px 10px;
       border: 1px solid #ccc;
       border-radius: 6px;
       box-sizing: border-box;
-      font-size: 14px;
+      font-size: 16px; /* 16px o más evita que iOS haga zoom automático al enfocar el campo */
     }
 
     .checkbox-row {
       display: flex;
       align-items: flex-start;
-      gap: 8px;
-      margin: 8px 0;
+      gap: 10px;
+      margin: 10px 0;
     }
-    .checkbox-row input { margin-top: 3px; }
+    .checkbox-row input {
+      margin-top: 3px;
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
     .checkbox-row label { margin: 0; font-weight: 500; color: #333; }
     .checkbox-row .ayuda { margin: 0; }
 
@@ -71,18 +77,39 @@
     button#btn-generar:hover { background: #2f5bb8; }
     button#btn-generar:disabled { background: #9db3e0; cursor: not-allowed; }
 
-    .file-details { font-size: 12px; color: #666; margin-top: 4px; }
+    .file-details { font-size: 13px; color: #666; margin-top: 4px; }
+
+    #lista-archivos {
+      font-size: 13.5px;
+      color: #333;
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: #f4f6f8;
+      border-radius: 6px;
+      line-height: 1.5;
+    }
+    #lista-archivos .archivo-item { display: flex; align-items: center; gap: 6px; }
+    #lista-archivos .archivo-item::before { content: "✓"; color: #1c7a34; font-weight: 700; }
+
+    input.campo-valido { border-color: #4caf80; background: #f5fbf7; }
+    input.campo-invalido { border-color: #d97b7b; background: #fef6f6; }
 
     .alert {
       padding: 12px 14px;
       border-radius: 8px;
       margin: 10px 0;
-      font-size: 14px;
+      font-size: 15px;
       white-space: pre-line; /* respeta los saltos de línea de las listas en viñetas */
     }
     .alert-error { background: #ffe5e5; color: #b00020; border: 1px solid #f5b3b3; }
     .alert-warning { background: #fff6dd; color: #8a6500; border: 1px solid #f0d98c; }
     .alert-success { background: #e6f7ea; color: #1c7a34; border: 1px solid #a9dcb5; }
+
+    /* Advertencias largas: el resumen queda visible, el detalle se
+       expande con un toque — evita un bloque de texto abrumador. */
+    .alert-warning summary { cursor: pointer; font-weight: 600; }
+    .alert-warning summary::-webkit-details-marker { color: #8a6500; }
+    .alert-warning .detalle { margin-top: 8px; }
 
     /* Overlay de "procesando" */
     #overlay {
@@ -120,22 +147,23 @@
     <p class="subtitulo">Compara notas y asistencia del Aula Virtual contra los registros de los tutores en Drive.</p>
 
     <form method="post" action="/generar-reporte" enctype="multipart/form-data" id="form-reporte">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
       <fieldset>
         <legend>Credenciales del Aula Virtual</legend>
         <label>Usuario (DNI)
-          <input type="text" name="usuario" placeholder="Tu usuario del Aula Virtual" required>
+          <input type="text" name="usuario" placeholder="Tu usuario del Aula Virtual" required autocomplete="username">
         </label>
         <label>Contraseña
-          <input type="password" name="password" placeholder="Tu contraseña del Aula Virtual" required>
+          <input type="password" name="password" placeholder="Tu contraseña del Aula Virtual" required autocomplete="current-password">
         </label>
-        <div class="ayuda">Tus credenciales se usan solo para esta descarga y no se guardan en el servidor.</div>
+        <div class="ayuda">Tus credenciales se usan solo para esta descarga y no se guardan en el servidor. Si usas una computadora compartida, evita que el navegador la recuerde.</div>
       </fieldset>
 
       <fieldset>
         <legend>Curso</legend>
         <label>ID del curso en el Aula Virtual
-          <input type="text" inputmode="numeric" name="curso_id" placeholder="Ej: 440" required>
+          <input type="text" inputmode="numeric" name="curso_id" id="curso_id" placeholder="Ej: 440" required>
         </label>
         <div class="ayuda">Lo encuentras en la URL del curso en el Aula Virtual (…/course/view.php?id=440).</div>
 
@@ -186,15 +214,16 @@
         <legend>Archivos</legend>
 
         <label>Archivos de asistencia de los tutores (Drive)</label>
-        <input type="file" name="tutores" multiple accept=".xlsx" required>
+        <input type="file" name="tutores" id="input-tutores" multiple accept=".xlsx" required>
         <div class="file-details">Puedes seleccionar varios archivos .xlsx a la vez (uno por tutor).</div>
+        <div id="lista-archivos" style="display:none;"></div>
       </fieldset>
 
       <button type="submit" id="btn-generar">Generar reporte</button>
     </form>
   </div>
 
-  <div id="mensajes" class="container" style="margin-top:-8px; padding-top:0; box-shadow:none; display:none;"></div>
+  <div id="mensajes" class="container" style="margin-top:-8px; padding-top:0; box-shadow:none; display:none;" aria-live="polite"></div>
 
   <div id="overlay">
     <div class="spinner"></div>
@@ -220,13 +249,35 @@
         return;
       }
       for (const { texto, tipo } of items) {
-        const div = document.createElement("div");
-        div.className = "alert alert-" + tipo;
-        div.textContent = texto;
-        mensajesDiv.appendChild(div);
+        mensajesDiv.appendChild(armarAlerta(texto, tipo));
       }
       mensajesDiv.style.display = "block";
       mensajesDiv.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function armarAlerta(texto, tipo) {
+      // Las advertencias con lista larga vienen como "resumen:\n• item1\n• item2...".
+      // Se muestran colapsadas (solo el resumen) para no abrumar con un
+      // bloque de texto largo — la tutora expande solo si le interesa el detalle.
+      const separador = texto.indexOf("\n");
+      if (tipo === "warning" && separador !== -1) {
+        const resumen = texto.slice(0, separador);
+        const detalle = texto.slice(separador + 1);
+        const details = document.createElement("details");
+        details.className = "alert alert-" + tipo;
+        const summary = document.createElement("summary");
+        summary.textContent = resumen;
+        const cuerpo = document.createElement("div");
+        cuerpo.className = "detalle";
+        cuerpo.textContent = detalle;
+        details.appendChild(summary);
+        details.appendChild(cuerpo);
+        return details;
+      }
+      const div = document.createElement("div");
+      div.className = "alert alert-" + tipo;
+      div.textContent = texto;
+      return div;
     }
 
     function base64ADescarga(base64, nombreArchivo) {
@@ -245,6 +296,44 @@
       a.remove();
       URL.revokeObjectURL(url);
     }
+
+    // ---- Confirmación visual de qué archivos se seleccionaron ----
+    // Sin esto, el navegador solo muestra "N archivos seleccionados" (o
+    // el nombre del primero), lo que deja a la tutora sin poder
+    // confirmar que seleccionó los archivos correctos antes de enviar.
+    const inputTutores = document.getElementById("input-tutores");
+    const listaArchivos = document.getElementById("lista-archivos");
+    inputTutores.addEventListener("change", function () {
+      listaArchivos.innerHTML = "";
+      if (!this.files.length) {
+        listaArchivos.style.display = "none";
+        return;
+      }
+      const titulo = document.createElement("div");
+      titulo.style.fontWeight = "600";
+      titulo.style.marginBottom = "4px";
+      titulo.textContent = `${this.files.length} archivo(s) seleccionado(s):`;
+      listaArchivos.appendChild(titulo);
+      for (const f of this.files) {
+        const item = document.createElement("div");
+        item.className = "archivo-item";
+        item.textContent = f.name; // textContent: nunca interpreta el nombre como HTML
+        listaArchivos.appendChild(item);
+      }
+      listaArchivos.style.display = "block";
+    });
+
+    // ---- Validación en vivo del ID de curso ----
+    // Marca el campo en verde/rojo mientras la tutora escribe, en vez
+    // de que el error de "no es un número" aparezca recién después de
+    // esperar 1-2 minutos de procesamiento.
+    const cursoIdInput = document.getElementById("curso_id");
+    cursoIdInput.addEventListener("input", function () {
+      const valor = this.value.trim();
+      this.classList.remove("campo-valido", "campo-invalido");
+      if (!valor) return; // no marcar nada hasta que empiece a escribir
+      this.classList.add(/^\d+$/.test(valor) ? "campo-valido" : "campo-invalido");
+    });
 
     form.addEventListener("submit", async function (e) {
       e.preventDefault();

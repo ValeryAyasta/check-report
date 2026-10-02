@@ -12,10 +12,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+# Re-exportada tal cual: el resto del proyecto (pipeline.py, app.py) y
+# los tests siguen importando `from domain.curso import
+# ConfiguracionInvalidaError` sin cambios. La definición real vive en
+# domain/excepciones.py, junto al resto de la jerarquía de errores de
+# negocio (ver ese archivo para el porqué).
+from domain.excepciones import ConfiguracionInvalidaError
 
-class ConfiguracionInvalidaError(Exception):
-    """La tutora ingresó datos incompletos o inconsistentes en el formulario."""
-    pass
+__all__ = ["ConfiguracionCurso", "ConfiguracionInvalidaError"]
 
 
 # Separa por comas, punto y coma, o cualquier espacio en blanco — así

@@ -7,6 +7,16 @@ commitear ningún dato real de alumnos.
 """
 from __future__ import annotations
 
+import os
+
+# app.py exige FLASK_SECRET_KEY apenas se importa (ver app.py). Se fija
+# acá un valor de prueba ANTES de que cualquier test importe `app`, así
+# `pytest` funciona out-of-the-box sin que quien corre los tests tenga
+# que exportar nada a mano. setdefault(): si la variable ya viene fijada
+# desde afuera (por ejemplo, en un pipeline de CI), se respeta esa en
+# vez de pisarla.
+os.environ.setdefault("FLASK_SECRET_KEY", "clave-de-pruebas-nunca-usar-en-produccion")
+
 import io
 import sys
 from pathlib import Path

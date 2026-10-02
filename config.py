@@ -56,7 +56,7 @@ NOMBRE_HOJA_DEVOCIONALES_TUTOR = "DEVO"
 #                      se usa para nada más. Actualmente ninguna columna
 #                      usa esta categoría ("Grupo" volvió a ser
 #                      obligatoria: es la que se usa para filtrar por
-#                      C11/C21, ver services/layout.filtrar_por_grupo).
+#                      C11/C21, ver infrastructure/excel/layout_moodle.filtrar_por_grupo).
 COLUMNAS_NOTAS_MOODLE = {
     "nombre":        {"patrones": ["nombre"],               "descartar": False, "condicional": None,     "clave_final": "Nombre"},
     "apellidos":     {"patrones": ["apellido"],              "descartar": False, "condicional": None,     "clave_final": "Apellidos"},
@@ -110,7 +110,7 @@ COLOR_DESAPROBADO_TEXTO = "FFFFFF"  # blanco
 # Tabla EXACTA que ya se usaba para cursos de 9 clases (se mantiene
 # igual para no cambiar la nota de cursos existentes). Para cursos con
 # un número distinto de clases (ej: 8), la nota se recalcula de forma
-# proporcional en services/calculator.py (no hay que tocar nada aquí).
+# proporcional en infrastructure/excel/excel_writer.py (no hay que tocar nada aquí).
 TABLA_NOTA_ASISTENCIA_9_CLASES = {
     1: 2, 2: 4, 3: 6, 4: 8, 5: 10, 6: 13, 7: 16, 8: 18, 9: 20,
 }
